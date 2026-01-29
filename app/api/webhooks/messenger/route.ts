@@ -2,7 +2,9 @@
 
 import { openai } from "@ai-sdk/openai";
 import { generateText, stepCountIs, tool } from "ai";
+import { ConvexHttpClient } from "convex/browser";
 import { z } from "zod";
+import { api } from "@/convex/_generated/api";
 import { shopifyFetch } from "@/lib/shopify";
 
 const ISUPPLY_SYSTEM_PROMPT =
@@ -31,18 +33,26 @@ export async function POST(req: Request) {
 
     if (body.object === "page") {
       for (const entry of body.entry) {
-        const webhookEvent = entry.messaging[0];
-        console.log("Event:", webhookEvent);
+        const pageId = entry.id;
+        for (const webhookEvent of entry.messaging ?? []) {
+          console.log("Event:", webhookEvent);
 
-        // Check if it's a message
-        if (webhookEvent.message && webhookEvent.message.text) {
-          const senderId = webhookEvent.sender.id;
-          const messageText = webhookEvent.message.text;
+          // Check if it's a message
+          if (webhookEvent.message && webhookEvent.message.text) {
+            const senderId = webhookEvent.sender.id;
+            const messageText = webhookEvent.message.text;
+            const platformMessageId = webhookEvent.message.mid ?? null;
 
-          console.log(`📩 Message from ${senderId}: ${messageText}`);
+            console.log(`📩 Message from ${senderId}: ${messageText}`);
 
-          const reply = await generateShopifyReply(messageText);
-          await sendMessage(senderId, reply);
+            const reply = await generateShopifyReply({
+              messageText,
+              pageId,
+              senderId,
+              platformMessageId,
+            });
+            await sendMessage(senderId, reply);
+          }
         }
       }
     }
@@ -54,7 +64,51 @@ export async function POST(req: Request) {
   }
 }
 
-async function generateShopifyReply(messageText: string) {
+async function generateShopifyReply({
+  messageText,
+  pageId,
+  senderId,
+  platformMessageId,
+}: {
+  messageText: string;
+  pageId: string;
+  senderId: string;
+  platformMessageId?: string | null;
+}) {
+  const client = createConvexClient();
+  const shop = await client.query(api.shops.getByMetaPageId, {
+    metaPageId: pageId,
+  });
+
+  if (!shop) {
+    return "Thanks for your message. We could not identify this shop yet.";
+  }
+
+  const storefront = {
+    endpoint: shop.shopifyDomain,
+    accessToken: shop.shopifyAccessToken,
+  };
+
+  const threadId = await client.mutation(api.threads.getOrCreate, {
+    shopId: shop._id,
+    platform: "messenger",
+    platformUserId: senderId,
+  });
+
+  const now = Date.now();
+  await client.mutation(api.messages.addMessage, {
+    threadId,
+    role: "user",
+    content: messageText,
+    timestamp: now,
+    platformMessageId: platformMessageId ?? undefined,
+  });
+
+  const history = await client.query(api.messages.listByThread, {
+    threadId,
+    limit: 12,
+  });
+
   const tools = {
     getProductAvailability: tool({
       description: "Check Shopify product availability by name or query string",
@@ -94,6 +148,7 @@ async function generateShopifyReply(messageText: string) {
             }
           }`,
           variables: { query: searchQuery },
+          storefront,
         });
 
         const products =
@@ -148,6 +203,7 @@ async function generateShopifyReply(messageText: string) {
             }
           }`,
           variables: { query: query ?? null },
+          storefront,
         });
 
         const categories =
@@ -173,12 +229,32 @@ async function generateShopifyReply(messageText: string) {
   const result = await generateText({
     model: openai("gpt-5.2-codex"),
     system: ISUPPLY_SYSTEM_PROMPT,
-    messages: [{ role: "user", content: messageText }],
+    messages: history.map((message) => ({
+      role: message.role,
+      content: message.content,
+    })),
     tools,
     stopWhen: stepCountIs(5),
   });
 
+  await client.mutation(api.messages.addMessage, {
+    threadId,
+    role: "assistant",
+    content: result.text,
+    timestamp: Date.now(),
+  });
+
   return result.text;
+}
+
+function createConvexClient() {
+  const url =
+    process.env.NEXT_PUBLIC_CONVEX_URL ?? process.env.CONVEX_URL ?? "";
+  if (!url) {
+    throw new Error("Missing NEXT_PUBLIC_CONVEX_URL for Convex client");
+  }
+
+  return new ConvexHttpClient(url);
 }
 
 // Helper function to send messages

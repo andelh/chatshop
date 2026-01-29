@@ -1,12 +1,25 @@
 export async function shopifyFetch({
   query,
   variables,
+  storefront,
 }: {
   query: string;
   variables?: Record<string, any>;
+  storefront?: {
+    endpoint: string;
+    accessToken: string;
+  };
 }) {
-  const endpoint = process.env.SHOPIFY_STORE_DOMAIN!;
-  const key = process.env.SHOPIFY_STOREFRONT_ACCESS_TOKEN!;
+  const endpoint = storefront?.endpoint ?? process.env.SHOPIFY_STORE_DOMAIN;
+  const key =
+    storefront?.accessToken ?? process.env.SHOPIFY_STOREFRONT_ACCESS_TOKEN;
+
+  if (!endpoint || !key) {
+    return {
+      status: 500,
+      error: "Missing Shopify storefront credentials",
+    };
+  }
 
   try {
     const result = await fetch(endpoint, {
