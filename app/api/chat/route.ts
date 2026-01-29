@@ -7,10 +7,8 @@ import {
   type UIMessage,
 } from "ai";
 import { z } from "zod";
+import { ISUPPLY_SYSTEM_PROMPT } from "@/lib/ai/systemPrompt";
 import { shopifyFetch } from "@/lib/shopify";
-
-const ISUPPLY_SYSTEM_PROMPT =
-  "You are the iSupply social assistant. Answer questions about product availability and stock using the provided tools when needed. Be concise, factual, and helpful. Avoid fluff. Sound polite and human.";
 
 export async function POST(req: Request) {
   const { messages }: { messages: UIMessage[] } = await req.json();

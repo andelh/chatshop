@@ -5,10 +5,8 @@ import { generateText, stepCountIs, tool } from "ai";
 import { ConvexHttpClient } from "convex/browser";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
+import { ISUPPLY_SYSTEM_PROMPT } from "@/lib/ai/systemPrompt";
 import { shopifyFetch } from "@/lib/shopify";
-
-const ISUPPLY_SYSTEM_PROMPT =
-  "You are the iSupply social assistant. Answer questions about product availability and stock using the provided tools when needed. Be concise, factual, and helpful. Avoid fluff. Sound polite and human.";
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
