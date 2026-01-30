@@ -20,12 +20,12 @@ export function ThreadSidebar({
   selectedThreadId,
   onSelectThread,
 }: ThreadSidebarProps) {
-  const threads = useQuery(api.threads.listByShop, {
+  const data = useQuery(api.threads.listByShopWithStats, {
     shopId,
     status: "active",
   });
 
-  if (threads === undefined) {
+  if (data === undefined) {
     return (
       <div className="w-full h-full border-r border-border bg-muted/30">
         <div className="p-4 border-b border-border">
@@ -72,7 +72,7 @@ export function ThreadSidebar({
     );
   }
 
-  if (threads.length === 0) {
+  if (data.threads.length === 0) {
     return (
       <div className="w-full h-full border-r border-border bg-muted/30 flex flex-col">
         <div className="p-4 border-b border-border">
@@ -91,38 +91,22 @@ export function ThreadSidebar({
       <div className="p-4 border-b border-border">
         <h2 className="font-semibold text-lg">Conversations</h2>
         <p className="text-sm text-muted-foreground mt-1">
-          {threads.length} active thread{threads.length !== 1 ? "s" : ""}
+          {data.threads.length} active thread
+          {data.threads.length !== 1 ? "s" : ""}
         </p>
         {/* Aggregate Stats */}
         <div className="mt-3 pt-3 border-t border-border/50 space-y-1">
-          {(() => {
-            const totalMessages = threads.reduce(
-              (sum, t) => sum + (t.totalMessages || 0),
-              0,
-            );
-            const totalTokens = threads.reduce(
-              (sum, t) => sum + (t.totalTokens || 0),
-              0,
-            );
-            const totalCost = threads.reduce(
-              (sum, t) => sum + (t.totalCostUsd || 0),
-              0,
-            );
-
-            return (
-              <>
-                <p className="text-xs text-muted-foreground">
-                  {totalMessages.toLocaleString()} messages
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {totalTokens.toLocaleString()} tokens
-                </p>
-                <p className="text-xs text-muted-foreground font-medium">
-                  ${totalCost.toFixed(2)} total cost
-                </p>
-              </>
-            );
-          })()}
+          <>
+            <p className="text-xs text-muted-foreground">
+              {data.totals.totalMessages.toLocaleString()} messages
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {data.totals.totalTokens.toLocaleString()} tokens
+            </p>
+            <p className="text-xs text-muted-foreground font-medium">
+              ${data.totals.totalCostUsd.toFixed(2)} total cost
+            </p>
+          </>
         </div>
       </div>
 
@@ -130,7 +114,7 @@ export function ThreadSidebar({
 
       <ScrollArea className="flex-1">
         <div role="listbox" aria-label="Conversation threads">
-          {threads.map((thread) => (
+          {data.threads.map((thread) => (
             <ThreadListItem
               key={thread._id}
               thread={thread}
