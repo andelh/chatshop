@@ -12,6 +12,7 @@ import {
 import {
   fetchMessengerProfileName,
   sendMetaMessage,
+  sendTypingIndicator,
 } from "@/lib/meta/messaging";
 
 export async function GET(req: Request) {
@@ -49,19 +50,34 @@ export async function POST(req: Request) {
 
             console.log(`📩 Message from ${senderId}: ${messageText}`);
 
-            const { reply, accessToken } = await generateShopifyReply({
-              messageText,
-              pageId,
-              senderId,
-              platformMessageId,
+            const accessToken =
+              process.env.META_PAGE_ACCESS_TOKEN ??
+              process.env.NEXT_PUBLIC_META_PAGE_ACCESS_TOKEN;
+
+            await sendTypingIndicator({
+              recipientId: senderId,
+              accessToken,
+              action: "typing_on",
             });
+
+            const { reply, accessToken: shopAccessToken } =
+              await generateShopifyReply({
+                messageText,
+                pageId,
+                senderId,
+                platformMessageId,
+              });
+
+            const resolvedAccessToken = shopAccessToken ?? accessToken;
             await sendMetaMessage({
               recipientId: senderId,
               text: reply,
-              accessToken:
-                accessToken ??
-                process.env.META_PAGE_ACCESS_TOKEN ??
-                process.env.NEXT_PUBLIC_META_PAGE_ACCESS_TOKEN,
+              accessToken: resolvedAccessToken,
+            });
+            await sendTypingIndicator({
+              recipientId: senderId,
+              accessToken: resolvedAccessToken,
+              action: "typing_off",
             });
           }
         }
