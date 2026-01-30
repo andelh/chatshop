@@ -3,7 +3,7 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { action } from "./_generated/server";
 
-const BATCH_DELAY_MS = 8000; // 8 seconds to collect messages
+const BATCH_DELAY_MS = 70000; // 1 minute and 10 seconds to collect messages
 
 /**
  * Schedule the batch processing job to run after the delay.
