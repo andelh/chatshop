@@ -3,7 +3,7 @@
 import { useQuery } from "convex/react";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, useParams } from "next/navigation";
 import { ConversationView } from "@/components/studio/conversation-view";
 import { PlatformIcon } from "@/components/studio/platform-icon";
 import { Badge } from "@/components/ui/badge";
@@ -11,14 +11,9 @@ import { Button } from "@/components/ui/button";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 
-interface ThreadPageProps {
-  params: Promise<{
-    threadId: string;
-  }>;
-}
-
-export default async function ThreadPage({ params }: ThreadPageProps) {
-  const { threadId } = await params;
+export default function ThreadPage() {
+  const params = useParams();
+  const threadId = params?.threadId as string | undefined;
 
   // Validate threadId format
   if (!threadId || typeof threadId !== "string") {
