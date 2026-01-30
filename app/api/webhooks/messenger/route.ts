@@ -8,7 +8,7 @@ import { api } from "@/convex/_generated/api";
 import { ISUPPLY_SYSTEM_PROMPT } from "@/lib/ai/systemPrompt";
 import { shopifyFetch } from "@/lib/shopify";
 
-// Model pricing from models.dev (per 1K tokens in USD)
+// Model pricing from models.dev (per 1M tokens in USD)
 const MODEL_PRICING: Record<string, { input: number; output: number }> = {
   "gpt-5.2": { input: 1.75, output: 14.0 },
   "gpt-5.2-codex": { input: 1.75, output: 14.0 },
@@ -24,8 +24,8 @@ function calculateCost(
   outputTokens: number,
 ): number {
   const pricing = MODEL_PRICING[model] || { input: 2.0, output: 10.0 }; // Default fallback
-  const inputCost = (inputTokens / 1000) * pricing.input;
-  const outputCost = (outputTokens / 1000) * pricing.output;
+  const inputCost = (inputTokens / 1_000_000) * pricing.input;
+  const outputCost = (outputTokens / 1_000_000) * pricing.output;
   return inputCost + outputCost;
 }
 
