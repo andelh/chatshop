@@ -512,6 +512,214 @@ function createShopifyTools(storefront: StorefrontConfig) {
         };
       },
     }),
+    checkVariantAvailability: tool({
+      description:
+        "Check if a specific product variant combination is available. Use this when the customer asks about a specific model, color, style, or size.",
+      inputSchema: z.object({
+        productSearch: z
+          .string()
+          .describe(
+            "Product name to search for (e.g., 'screen protector', 'otterbox case')",
+          ),
+        variantFilters: z
+          .object({
+            style: z
+              .string()
+              .optional()
+              .describe(
+                "Style/Type variant (e.g., 'Clear', 'Privacy', 'Defender')",
+              ),
+            model: z
+              .string()
+              .optional()
+              .describe(
+                "iPhone/Device model (e.g., 'iPhone 15 Plus', 'iPhone 16 Pro')",
+              ),
+            color: z
+              .string()
+              .optional()
+              .describe("Color variant (e.g., 'Black', 'Blue')"),
+            size: z
+              .string()
+              .optional()
+              .describe("Size/Storage variant (e.g., '128GB', '256GB')"),
+          })
+          .describe(
+            "Filter criteria - only variants matching ALL specified filters will be returned",
+          ),
+      }),
+      execute: async ({ productSearch, variantFilters }) => {
+        // First search for the product
+        const searchQuery = productSearch;
+        const response = await shopifyFetch({
+          query: `query ProductAvailability($query: String!) {
+            products(first: 10, query: $query) {
+              edges {
+                node {
+                  id
+                  title
+                  handle
+                  description
+                  productType
+                  tags
+                  availableForSale
+                  priceRange {
+                    minVariantPrice {
+                      amount
+                      currencyCode
+                    }
+                    maxVariantPrice {
+                      amount
+                      currencyCode
+                    }
+                  }
+                  options {
+                    id
+                    name
+                    values
+                  }
+                  variants(first: 50) {
+                    edges {
+                      node {
+                        id
+                        title
+                        availableForSale
+                        quantityAvailable
+                        price {
+                          amount
+                          currencyCode
+                        }
+                        compareAtPrice {
+                          amount
+                          currencyCode
+                        }
+                        selectedOptions {
+                          name
+                          value
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }`,
+          variables: { query: searchQuery },
+          storefront,
+        });
+
+        const products =
+          response.body?.data?.products?.edges?.map((edge: { node: any }) => {
+            const product = edge.node;
+            return {
+              id: product.id,
+              title: product.title,
+              handle: product.handle,
+              description: product.description,
+              productType: product.productType,
+              tags: product.tags,
+              availableForSale: product.availableForSale,
+              priceRange: product.priceRange,
+              options: product.options,
+              variants: product.variants.edges.map(
+                (variantEdge: { node: any }) => ({
+                  id: variantEdge.node.id,
+                  title: variantEdge.node.title,
+                  availableForSale: variantEdge.node.availableForSale,
+                  quantityAvailable: variantEdge.node.quantityAvailable,
+                  price: variantEdge.node.price,
+                  compareAtPrice: variantEdge.node.compareAtPrice,
+                  selectedOptions: variantEdge.node.selectedOptions,
+                }),
+              ),
+            };
+          }) ?? [];
+
+        // Filter variants by the specified criteria
+        const matchingResults = products
+          .map((product: any) => {
+            const matchingVariants = product.variants.filter((variant: any) => {
+              // Check if variant matches ALL specified filters
+              const matchesStyle =
+                !variantFilters.style ||
+                variant.selectedOptions.some(
+                  (opt: any) =>
+                    opt.name.toLowerCase().includes("style") &&
+                    opt.value
+                      .toLowerCase()
+                      .includes(variantFilters.style!.toLowerCase()),
+                ) ||
+                variant.title
+                  .toLowerCase()
+                  .includes(variantFilters.style!.toLowerCase());
+
+              const matchesModel =
+                !variantFilters.model ||
+                variant.selectedOptions.some(
+                  (opt: any) =>
+                    opt.name.toLowerCase().includes("model") &&
+                    opt.value
+                      .toLowerCase()
+                      .includes(variantFilters.model!.toLowerCase()),
+                ) ||
+                variant.title
+                  .toLowerCase()
+                  .includes(variantFilters.model!.toLowerCase());
+
+              const matchesColor =
+                !variantFilters.color ||
+                variant.selectedOptions.some(
+                  (opt: any) =>
+                    opt.name.toLowerCase().includes("color") &&
+                    opt.value
+                      .toLowerCase()
+                      .includes(variantFilters.color!.toLowerCase()),
+                ) ||
+                variant.title
+                  .toLowerCase()
+                  .includes(variantFilters.color!.toLowerCase());
+
+              const matchesSize =
+                !variantFilters.size ||
+                variant.selectedOptions.some(
+                  (opt: any) =>
+                    opt.name.toLowerCase().includes("size") &&
+                    opt.value
+                      .toLowerCase()
+                      .includes(variantFilters.size!.toLowerCase()),
+                ) ||
+                variant.title
+                  .toLowerCase()
+                  .includes(variantFilters.size!.toLowerCase());
+
+              return (
+                matchesStyle && matchesModel && matchesColor && matchesSize
+              );
+            });
+
+            if (matchingVariants.length === 0) return null;
+
+            return {
+              product: {
+                id: product.id,
+                title: product.title,
+                handle: product.handle,
+              },
+              matchingVariants,
+              totalVariants: product.variants.length,
+            };
+          })
+          .filter(Boolean);
+
+        return {
+          searchQuery,
+          variantFilters,
+          found: matchingResults.length > 0,
+          matches: matchingResults,
+          errors: response.body?.errors ?? null,
+        };
+      },
+    }),
   };
 }
 
