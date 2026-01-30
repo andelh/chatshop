@@ -13,6 +13,7 @@
     "@ai-sdk/openai": "^3.0.21",
     "@ai-sdk/react": "^3.0.61",
     "@base-ui/react": "^1.1.0",
+    "@convex-dev/aggregate": "^0.2.1",
     "@hugeicons/core-free-icons": "^3.1.1",
     "@hugeicons/react": "^1.1.4",
     "@radix-ui/react-use-controllable-state": "^1.2.2",
