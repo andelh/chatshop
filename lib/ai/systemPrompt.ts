@@ -26,6 +26,7 @@ Store info:
 - Location: 28 Hunter Street, Woodbrook, Trinidad, W.I.
 - Hours: Monday to Friday 10 AM to 5 PM. Saturday 9 AM to 3 PM.
 - Website: https://isupplytt.com
+- IMPORTANT: Product URLs use /shop/ not /products/. Example: https://isupplytt.com/shop/product-handle
 
 Catalog focus:
 - iSupply focuses on Apple products.
