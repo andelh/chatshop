@@ -26,6 +26,7 @@ export const addMessage = mutation({
     timestamp: v.number(),
     platformMessageId: v.optional(v.string()),
     toolCalls: v.optional(v.array(v.any())),
+    reasoning: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const messageId = await ctx.db.insert("messages", {
@@ -35,6 +36,7 @@ export const addMessage = mutation({
       timestamp: args.timestamp,
       platformMessageId: args.platformMessageId,
       toolCalls: args.toolCalls,
+      reasoning: args.reasoning,
     });
 
     const thread = await ctx.db.get(args.threadId);
