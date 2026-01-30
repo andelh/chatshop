@@ -262,7 +262,7 @@ async function generateShopifyReply({
   };
 
   const result = await generateText({
-    model: openai("gpt-5.2-codex"),
+    model: openai("gpt-5.2"),
     system: ISUPPLY_SYSTEM_PROMPT,
     messages: history.map((message) => ({
       role: message.role,
