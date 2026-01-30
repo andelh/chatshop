@@ -290,11 +290,25 @@ async function generateShopifyReply({
     console.log(`Tool calls: ${step.toolCalls?.length || 0}`);
 
     step.toolCalls?.forEach((toolCall: any, toolIndex: number) => {
-      console.log(`\n  Tool ${toolIndex + 1}: ${toolCall.toolName}`);
-      console.log(`  Args: ${JSON.stringify(toolCall.args, null, 2)}`);
-      if (toolCall.result) {
+      console.log(
+        `\n  Tool ${toolIndex + 1}: ${toolCall.toolName || toolCall.tool?.name || "unknown"}`,
+      );
+      console.log(
+        `  Tool Call ID: ${toolCall.toolCallId || toolCall.callId || "N/A"}`,
+      );
+
+      // Try multiple possible locations for args
+      const args =
+        toolCall.args ||
+        toolCall.parameters ||
+        toolCall.arguments ||
+        toolCall.input;
+      console.log(`  Args: ${JSON.stringify(args, null, 2)}`);
+
+      if (toolCall.result || toolCall.output || toolCall.response) {
+        const result = toolCall.result || toolCall.output || toolCall.response;
         console.log(
-          `  Result: ${JSON.stringify(toolCall.result, null, 2).substring(0, 200)}...`,
+          `  Result: ${JSON.stringify(result, null, 2).substring(0, 200)}...`,
         );
       }
       if (toolCall.error) {

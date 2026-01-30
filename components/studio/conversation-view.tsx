@@ -66,6 +66,23 @@ function ToolCallDisplay({ tool }: { tool: any }) {
   );
 }
 
+function parseReasoning(reasoning: string | undefined): string | null {
+  if (!reasoning) return null;
+
+  try {
+    const parsed = JSON.parse(reasoning);
+    if (Array.isArray(parsed)) {
+      return parsed
+        .filter((item) => item.type === "reasoning" && item.text)
+        .map((item) => item.text)
+        .join("\n\n");
+    }
+    return reasoning;
+  } catch {
+    return reasoning;
+  }
+}
+
 function MessageItem({
   content,
   role,
@@ -74,6 +91,7 @@ function MessageItem({
   reasoning,
 }: MessageItemProps) {
   const isUser = role === "user";
+  const parsedReasoning = parseReasoning(reasoning);
 
   return (
     <div
@@ -117,10 +135,10 @@ function MessageItem({
         )}
 
         {/* Reasoning/Thinking */}
-        {!isUser && reasoning && (
+        {!isUser && parsedReasoning && (
           <Reasoning className="w-full max-w-[90%]">
             <ReasoningTrigger />
-            <ReasoningContent>{reasoning}</ReasoningContent>
+            <ReasoningContent>{parsedReasoning}</ReasoningContent>
           </Reasoning>
         )}
 
