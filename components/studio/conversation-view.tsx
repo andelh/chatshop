@@ -53,13 +53,7 @@ function ToolCallDisplay({ tool }: { tool: any }) {
       <ToolHeader
         title={toolName}
         type={`tool-call-${toolName}`}
-        state={
-          hasError
-            ? "output-error"
-            : toolResult
-              ? "output-available"
-              : "input-available"
-        }
+        state={hasError ? "output-error" : "output-available"}
       />
       <ToolContent>
         <ToolInput input={toolArgs} />
