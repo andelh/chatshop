@@ -70,8 +70,7 @@ export async function POST(req: Request) {
               senderId,
               platformMessageId,
             });
-            console.log({ reply });
-            // await sendMessage(senderId, reply);
+            await sendMessage(senderId, reply);
           }
         }
       }
@@ -109,10 +108,25 @@ async function generateShopifyReply({
     accessToken: shop.shopifyAccessToken,
   };
 
+  const existingThread = await client.query(api.threads.getByShopPlatformUser, {
+    shopId: shop._id,
+    platform: "messenger",
+    platformUserId: senderId,
+  });
+
+  let customerName = existingThread?.customerName;
+  if (!customerName && shop.metaPageAccessToken) {
+    customerName = await fetchMessengerProfileName(
+      senderId,
+      shop.metaPageAccessToken,
+    );
+  }
+
   const threadId = await client.mutation(api.threads.getOrCreate, {
     shopId: shop._id,
     platform: "messenger",
     platformUserId: senderId,
+    customerName: customerName || undefined,
   });
 
   const now = Date.now();
@@ -390,6 +404,30 @@ async function generateShopifyReply({
   });
 
   return result.text;
+}
+
+async function fetchMessengerProfileName(
+  senderId: string,
+  pageAccessToken: string,
+): Promise<string | undefined> {
+  try {
+    const url = new URL(`https://graph.facebook.com/v18.0/${senderId}`);
+    url.searchParams.set("fields", "first_name,last_name");
+    url.searchParams.set("access_token", pageAccessToken);
+
+    const response = await fetch(url.toString());
+    if (!response.ok) return undefined;
+
+    const data = await response.json();
+    const fullName = [data.first_name, data.last_name]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+
+    return fullName || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function createConvexClient() {

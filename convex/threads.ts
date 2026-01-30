@@ -121,3 +121,22 @@ export const get = query({
     return await ctx.db.get(args.threadId);
   },
 });
+
+export const getByShopPlatformUser = query({
+  args: {
+    shopId: v.id("shops"),
+    platform: v.string(),
+    platformUserId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("threads")
+      .withIndex("by_shop_platform_user", (q) =>
+        q
+          .eq("shopId", args.shopId)
+          .eq("platform", args.platform)
+          .eq("platformUserId", args.platformUserId),
+      )
+      .first();
+  },
+});
