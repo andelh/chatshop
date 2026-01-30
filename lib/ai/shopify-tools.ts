@@ -159,5 +159,88 @@ export function createShopifyTools(storefront: StorefrontConfig) {
         };
       },
     }),
+    getCategoryProductsByPrice: tool({
+      description:
+        "Search product categories and return products sorted by price",
+      inputSchema: z.object({
+        query: z
+          .string()
+          .optional()
+          .describe(
+            "Optional search query for collections (e.g. title:'Phones')",
+          ),
+        sort: z
+          .enum(["asc", "desc"])
+          .optional()
+          .describe("Sort direction for price (asc or desc)"),
+      }),
+      execute: async ({ query, sort }) => {
+        const reverse = sort === "desc";
+        const response = await shopifyFetch({
+          query: `query CategoryProductsByPrice($query: String, $reverse: Boolean!) {
+            collections(first: 5, query: $query) {
+              edges {
+                node {
+                  id
+                  title
+                  handle
+                  products(first: 10, sortKey: PRICE, reverse: $reverse) {
+                    edges {
+                      node {
+                        id
+                        title
+                        handle
+                        availableForSale
+                        priceRange {
+                          minVariantPrice {
+                            amount
+                            currencyCode
+                          }
+                          maxVariantPrice {
+                            amount
+                            currencyCode
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }`,
+          variables: { query: query ?? null, reverse },
+          storefront,
+        });
+
+        const categories =
+          response.body?.data?.collections?.edges?.map(
+            (edge: { node: any }) => {
+              const collection = edge.node;
+              return {
+                id: collection.id,
+                title: collection.title,
+                handle: collection.handle,
+                products:
+                  collection.products?.edges?.map(
+                    (productEdge: { node: any }) => ({
+                      id: productEdge.node.id,
+                      title: productEdge.node.title,
+                      handle: productEdge.node.handle,
+                      availableForSale: productEdge.node.availableForSale,
+                      priceRange: productEdge.node.priceRange,
+                    }),
+                  ) ?? [],
+              };
+            },
+          ) ?? [];
+
+        return {
+          query: query ?? null,
+          sort: sort ?? "asc",
+          categories,
+          errors: response.body?.errors ?? null,
+        };
+      },
+    }),
   };
 }
