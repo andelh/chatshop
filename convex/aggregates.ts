@@ -1,10 +1,10 @@
 import { TableAggregate } from "@convex-dev/aggregate";
 import { components } from "./_generated/api";
-import type { DataModel } from "./_generated/dataModel";
+import type { DataModel, Id } from "./_generated/dataModel";
 
 // Aggregate total messages per thread
 export const messagesByThread = new TableAggregate<{
-  Namespace: string;
+  Namespace: Id<"threads">;
   Key: number;
   DataModel: DataModel;
   TableName: "messages";
@@ -15,7 +15,7 @@ export const messagesByThread = new TableAggregate<{
 
 // Aggregate total tokens per thread
 export const tokensByThread = new TableAggregate<{
-  Namespace: string;
+  Namespace: Id<"threads">;
   Key: number;
   DataModel: DataModel;
   TableName: "messages";
@@ -27,7 +27,7 @@ export const tokensByThread = new TableAggregate<{
 
 // Aggregate total cost per thread
 export const costByThread = new TableAggregate<{
-  Namespace: string;
+  Namespace: Id<"threads">;
   Key: number;
   DataModel: DataModel;
   TableName: "messages";

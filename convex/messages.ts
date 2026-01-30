@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { costByThread, messagesByThread, tokensByThread } from "./aggregates";
 
 export const listByThread = query({
   args: {
@@ -50,6 +51,15 @@ export const addMessage = mutation({
       aiMetadata: args.aiMetadata,
     });
 
+    const newMessage = await ctx.db.get(messageId);
+    if (newMessage) {
+      await Promise.all([
+        messagesByThread.insert(ctx, newMessage),
+        tokensByThread.insert(ctx, newMessage),
+        costByThread.insert(ctx, newMessage),
+      ]);
+    }
+
     const thread = await ctx.db.get(args.threadId);
     if (thread) {
       const unreadCount =
@@ -72,5 +82,20 @@ export const addMessage = mutation({
     }
 
     return messageId;
+  },
+});
+
+export const backfillMessageAggregates = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const messages = await ctx.db.query("messages").collect();
+
+    for (const message of messages) {
+      await messagesByThread.insertIfDoesNotExist(ctx, message);
+      await tokensByThread.insertIfDoesNotExist(ctx, message);
+      await costByThread.insertIfDoesNotExist(ctx, message);
+    }
+
+    return { processed: messages.length };
   },
 });
