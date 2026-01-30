@@ -259,7 +259,7 @@ export function ConversationView({ threadId }: ConversationViewProps) {
     <div className="flex-1 flex flex-col h-full">
       <div className="flex-1 overflow-hidden">
         <ScrollArea className="h-full">
-          <div className="divide-y divide-border/50">
+          <div className="divide-y divide-border/50 pb-6">
             {messages.map((message) => (
               <MessageItem
                 key={message._id}
