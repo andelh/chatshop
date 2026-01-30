@@ -43,6 +43,13 @@ export async function POST(req: Request) {
           console.log("Event:", webhookEvent);
 
           // Check if it's a message
+          if (
+            webhookEvent.message?.is_echo ||
+            webhookEvent.sender?.id === pageId
+          ) {
+            continue;
+          }
+
           if (webhookEvent.message && webhookEvent.message.text) {
             const senderId = webhookEvent.sender.id;
             const messageText = webhookEvent.message.text;
