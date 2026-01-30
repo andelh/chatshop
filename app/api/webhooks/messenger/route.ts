@@ -325,13 +325,32 @@ async function generateShopifyReply({
   console.log(result.text);
   console.log("\n" + "=".repeat(50) + "\n");
 
+  // Aggregate all tool calls from all steps
+  const allToolCalls =
+    result.steps?.flatMap(
+      (step: any) =>
+        step.toolCalls?.map((toolCall: any) => ({
+          toolCallId: toolCall.toolCallId || toolCall.callId,
+          toolName: toolCall.toolName || toolCall.tool?.name,
+          args:
+            toolCall.args ||
+            toolCall.parameters ||
+            toolCall.arguments ||
+            toolCall.input,
+          result: toolCall.result || toolCall.output || toolCall.response,
+          state:
+            toolCall.state ||
+            (toolCall.result ? "output-available" : "input-available"),
+        })) || [],
+    ) || [];
+
   await client.mutation(api.messages.addMessage, {
     threadId,
     role: "assistant",
     content: result.text,
     timestamp: Date.now(),
     reasoning: result.reasoning ? JSON.stringify(result.reasoning) : undefined,
-    toolCalls: result.toolCalls,
+    toolCalls: allToolCalls,
   });
 
   return result.text;
