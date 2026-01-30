@@ -140,3 +140,56 @@ export const getByShopPlatformUser = query({
       .first();
   },
 });
+
+/**
+ * Update the scheduled job ID for a thread.
+ * Called when scheduling or cancelling batch processing.
+ */
+export const updateScheduledJob = mutation({
+  args: {
+    threadId: v.id("threads"),
+    jobId: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.threadId, {
+      scheduledJobId: args.jobId,
+    });
+  },
+});
+
+/**
+ * Clear the scheduled job ID for a thread.
+ * Called after batch processing completes.
+ */
+export const clearScheduledJob = mutation({
+  args: {
+    threadId: v.id("threads"),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.threadId, {
+      scheduledJobId: undefined,
+      pendingSequenceCounter: 0,
+    });
+  },
+});
+
+/**
+ * Get the next sequence number for pending messages.
+ * This ensures proper ordering when concatenating batched messages.
+ */
+export const getNextSequenceNumber = mutation({
+  args: {
+    threadId: v.id("threads"),
+  },
+  handler: async (ctx, args) => {
+    const thread = await ctx.db.get(args.threadId);
+    const currentCounter = thread?.pendingSequenceCounter ?? 0;
+    const nextCounter = currentCounter + 1;
+
+    await ctx.db.patch(args.threadId, {
+      pendingSequenceCounter: nextCounter,
+    });
+
+    return nextCounter;
+  },
+});

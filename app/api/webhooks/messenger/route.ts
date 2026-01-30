@@ -2,18 +2,7 @@
 
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@/convex/_generated/api";
-import { calculateCost } from "@/lib/ai/cost";
-import {
-  DEFAULT_MODEL,
-  extractToolCalls,
-  logAssistantResult,
-  runShopAssistant,
-} from "@/lib/ai/shop-assistant";
-import {
-  fetchMessengerProfileName,
-  sendMetaMessage,
-  sendTypingIndicator,
-} from "@/lib/meta/messaging";
+import { sendMetaMessage } from "@/lib/meta/messaging";
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
@@ -69,35 +58,13 @@ export async function POST(req: Request) {
 
             console.log(`📩 Message from ${senderId}: ${messageText}`);
 
-            const accessToken =
-              process.env.META_PAGE_ACCESS_TOKEN ??
-              process.env.NEXT_PUBLIC_META_PAGE_ACCESS_TOKEN;
-
-            await sleep(5000);
-            await sendTypingIndicator({
-              recipientId: senderId,
-              accessToken,
-              action: "typing_on",
-            });
-
-            const { reply, accessToken: shopAccessToken } =
-              await generateShopifyReply({
-                messageText,
-                pageId,
-                senderId,
-                platformMessageId,
-              });
-
-            const resolvedAccessToken = shopAccessToken ?? accessToken;
-            await sendMetaMessage({
-              recipientId: senderId,
-              text: reply,
-              accessToken: resolvedAccessToken,
-            });
-            await sendTypingIndicator({
-              recipientId: senderId,
-              accessToken: resolvedAccessToken,
-              action: "typing_off",
+            // Add message to pending queue and schedule batch processing
+            await queueMessageForBatching({
+              client,
+              messageText,
+              pageId,
+              senderId,
+              platformMessageId,
             });
           }
         }
@@ -111,107 +78,104 @@ export async function POST(req: Request) {
   }
 }
 
-async function generateShopifyReply({
+/**
+ * Queue a message for batch processing.
+ * Instead of immediately processing, we add it to a pending queue and schedule
+ * batch processing after a 4-second delay. If more messages arrive within that window,
+ * they're added to the same batch.
+ */
+async function queueMessageForBatching({
+  client,
   messageText,
   pageId,
   senderId,
   platformMessageId,
 }: {
+  client: ConvexHttpClient;
   messageText: string;
   pageId: string;
   senderId: string;
-  platformMessageId?: string | null;
-}): Promise<{ reply: string; accessToken?: string }> {
-  const client = createConvexClient();
+  platformMessageId: string | null;
+}) {
+  // Get or create thread
   const shop = await client.query(api.shops.getByMetaPageId, {
     metaPageId: pageId,
   });
 
   if (!shop) {
-    return {
-      reply: "Thanks for your message. We could not identify this shop yet.",
-      accessToken:
-        process.env.META_PAGE_ACCESS_TOKEN ??
-        process.env.NEXT_PUBLIC_META_PAGE_ACCESS_TOKEN,
-    };
-  }
-
-  const storefront = {
-    endpoint: shop.shopifyDomain,
-    accessToken: shop.shopifyAccessToken,
-  };
-
-  const existingThread = await client.query(api.threads.getByShopPlatformUser, {
-    shopId: shop._id,
-    platform: "messenger",
-    platformUserId: senderId,
-  });
-
-  let customerName = existingThread?.customerName;
-  if (!customerName && shop.metaPageAccessToken) {
-    customerName = await fetchMessengerProfileName(
-      senderId,
-      shop.metaPageAccessToken,
-    );
+    console.error("Shop not found for pageId:", pageId);
+    // Send a fallback response immediately
+    const accessToken =
+      process.env.META_PAGE_ACCESS_TOKEN ??
+      process.env.NEXT_PUBLIC_META_PAGE_ACCESS_TOKEN;
+    await sendMetaMessage({
+      recipientId: senderId,
+      text: "Thanks for your message. We could not identify this shop yet.",
+      accessToken,
+    });
+    return;
   }
 
   const threadId = await client.mutation(api.threads.getOrCreate, {
     shopId: shop._id,
     platform: "messenger",
     platformUserId: senderId,
-    customerName: customerName || undefined,
   });
 
-  const now = Date.now();
-  await client.mutation(api.messages.addMessage, {
+  // Get the thread to check for existing scheduled job
+  const thread = await client.query(api.threads.get, { threadId });
+  const existingJobId = thread?.scheduledJobId;
+
+  // Cancel existing scheduled job if present
+  if (existingJobId) {
+    console.log("Cancelling existing scheduled job:", existingJobId);
+    try {
+      await client.action(api.scheduler.cancelScheduledJob, {
+        jobId: existingJobId,
+      });
+    } catch (error) {
+      console.error("Error cancelling job:", error);
+      // Continue anyway - the job might have already run
+    }
+  }
+
+  // Get next sequence number for this thread
+  const sequenceNumber = await client.mutation(
+    api.threads.getNextSequenceNumber,
+    { threadId },
+  );
+
+  // Add message to pending queue
+  await client.mutation(api.pendingMessages.addPendingMessage, {
     threadId,
-    role: "user",
     content: messageText,
-    timestamp: now,
-    platformMessageId: platformMessageId ?? undefined,
-  });
-
-  const history = await client.query(api.messages.listByThread, {
-    threadId,
-    limit: 12,
-  });
-
-  const result = await runShopAssistant({
-    history: history.map((message) => ({
-      role: message.role,
-      content: message.content,
-    })),
-    storefront,
-  });
-
-  logAssistantResult(result);
-
-  const allToolCalls = extractToolCalls(result.steps);
-  const model = DEFAULT_MODEL;
-  const usage = result.totalUsage;
-
-  await client.mutation(api.messages.addMessage, {
-    threadId,
-    role: "assistant",
-    content: result.text,
     timestamp: Date.now(),
-    reasoning: result.reasoning ? JSON.stringify(result.reasoning) : undefined,
-    toolCalls: allToolCalls,
-    aiMetadata: {
-      model,
-      totalTokens: usage?.totalTokens ?? 0,
-      reasoningTokens: usage?.reasoningTokens ?? 0,
-      inputTokens: usage?.inputTokens ?? 0,
-      outputTokens: usage?.outputTokens ?? 0,
-      costUsd: calculateCost(
-        model,
-        usage?.inputTokens ?? 0,
-        usage?.outputTokens ?? 0,
-      ),
-    },
+    platformMessageId: platformMessageId ?? undefined,
+    sequenceNumber,
   });
 
-  return { reply: result.text, accessToken: shop.metaPageAccessToken };
+  console.log(
+    `Queued message #${sequenceNumber} for thread ${threadId}. Scheduling batch processing...`,
+  );
+
+  // Schedule new batch processing job
+  const newJobId = await client.action(
+    api.scheduler.scheduleMessageProcessing,
+    {
+      threadId,
+      senderId,
+      pageId,
+      platform: "messenger",
+    },
+  );
+
+  // Update thread with new job ID
+  await client.mutation(api.threads.updateScheduledJob, {
+    threadId,
+    jobId: newJobId,
+  });
+
+  console.log("Scheduled batch processing job:", newJobId);
 }
 
 function createConvexClient() {
@@ -222,8 +186,4 @@ function createConvexClient() {
   }
 
   return new ConvexHttpClient(url);
-}
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

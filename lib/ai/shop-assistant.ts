@@ -1,7 +1,7 @@
 import { openai } from "@ai-sdk/openai";
 import { generateText, stepCountIs } from "ai";
-import { createShopifyTools } from "@/lib/ai/shopify-tools";
-import { ISUPPLY_SYSTEM_PROMPT } from "@/lib/ai/systemPrompt";
+import { createShopifyTools } from "./shopify-tools";
+import { ISUPPLY_SYSTEM_PROMPT } from "./systemPrompt";
 
 interface StorefrontConfig {
   endpoint: string;

@@ -40,10 +40,26 @@ export default defineSchema({
     totalMessages: v.optional(v.number()),
     totalTokens: v.optional(v.number()),
     totalCostUsd: v.optional(v.number()),
+
+    // Scheduling state for message batching
+    scheduledJobId: v.optional(v.string()),
+    pendingSequenceCounter: v.optional(v.number()),
   })
     .index("by_shop_and_user", ["shopId", "platformUserId"])
     .index("by_shop_platform_user", ["shopId", "platform", "platformUserId"])
     .index("by_shop_status", ["shopId", "status", "lastMessageAt"]),
+
+  // Pending messages queue for batching rapid user messages
+  pending_messages: defineTable({
+    threadId: v.id("threads"),
+    content: v.string(),
+    timestamp: v.number(),
+    platformMessageId: v.optional(v.string()),
+    // Sequence number for preserving message order when batching
+    sequenceNumber: v.number(),
+  })
+    .index("by_thread", ["threadId"])
+    .index("by_thread_sequence", ["threadId", "sequenceNumber"]),
 
   // Individual messages within threads
   messages: defineTable({

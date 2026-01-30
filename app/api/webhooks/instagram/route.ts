@@ -2,16 +2,7 @@
 
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@/convex/_generated/api";
-import { calculateCost } from "@/lib/ai/cost";
-import {
-  DEFAULT_MODEL,
-  extractToolCalls,
-  runShopAssistant,
-} from "@/lib/ai/shop-assistant";
-import {
-  fetchInstagramProfileName,
-  sendMetaMessage,
-} from "@/lib/meta/messaging";
+import { sendMetaMessage } from "@/lib/meta/messaging";
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
@@ -38,6 +29,7 @@ export async function POST(req: Request) {
     );
 
     if (body.object === "instagram") {
+      const client = createConvexClient();
       for (const entry of body.entry) {
         const instagramAccountId = entry.id;
         for (const webhookEvent of entry.messaging ?? []) {
@@ -48,21 +40,26 @@ export async function POST(req: Request) {
             const messageText = webhookEvent.message.text;
             const platformMessageId = webhookEvent.message.mid ?? null;
 
+            if (platformMessageId) {
+              const existingMessage = await client.query(
+                api.messages.getByPlatformMessageId,
+                { platformMessageId },
+              );
+              if (existingMessage) {
+                console.log("Skipping duplicate message:", platformMessageId);
+                continue;
+              }
+            }
+
             console.log(`📩 IG message from ${senderId}: ${messageText}`);
 
-            const { reply, accessToken } = await generateShopifyReply({
+            // Add message to pending queue and schedule batch processing
+            await queueMessageForBatching({
+              client,
               messageText,
               instagramAccountId,
               senderId,
               platformMessageId,
-            });
-            await sendMetaMessage({
-              recipientId: senderId,
-              text: reply,
-              accessToken:
-                accessToken ??
-                process.env.META_PAGE_ACCESS_TOKEN ??
-                process.env.NEXT_PUBLIC_META_PAGE_ACCESS_TOKEN,
             });
           }
         }
@@ -76,105 +73,104 @@ export async function POST(req: Request) {
   }
 }
 
-async function generateShopifyReply({
+/**
+ * Queue a message for batch processing.
+ * Instead of immediately processing, we add it to a pending queue and schedule
+ * batch processing after a 4-second delay. If more messages arrive within that window,
+ * they're added to the same batch.
+ */
+async function queueMessageForBatching({
+  client,
   messageText,
   instagramAccountId,
   senderId,
   platformMessageId,
 }: {
+  client: ConvexHttpClient;
   messageText: string;
   instagramAccountId: string;
   senderId: string;
-  platformMessageId?: string | null;
-}): Promise<{ reply: string; accessToken?: string }> {
-  const client = createConvexClient();
+  platformMessageId: string | null;
+}) {
+  // Get or create thread
   const shop = await client.query(api.shops.getByInstagramAccountId, {
     instagramAccountId,
   });
 
   if (!shop) {
-    return {
-      reply: "Thanks for your message. We could not identify this shop yet.",
-      accessToken:
-        process.env.META_PAGE_ACCESS_TOKEN ??
-        process.env.NEXT_PUBLIC_META_PAGE_ACCESS_TOKEN,
-    };
-  }
-
-  const storefront = {
-    endpoint: shop.shopifyDomain,
-    accessToken: shop.shopifyAccessToken,
-  };
-
-  const existingThread = await client.query(api.threads.getByShopPlatformUser, {
-    shopId: shop._id,
-    platform: "instagram",
-    platformUserId: senderId,
-  });
-
-  let customerName = existingThread?.customerName;
-  if (!customerName && shop.metaPageAccessToken) {
-    customerName = await fetchInstagramProfileName(
-      senderId,
-      shop.metaPageAccessToken,
-    );
+    console.error("Shop not found for Instagram account:", instagramAccountId);
+    // Send a fallback response immediately
+    const accessToken =
+      process.env.META_PAGE_ACCESS_TOKEN ??
+      process.env.NEXT_PUBLIC_META_PAGE_ACCESS_TOKEN;
+    await sendMetaMessage({
+      recipientId: senderId,
+      text: "Thanks for your message. We could not identify this shop yet.",
+      accessToken,
+    });
+    return;
   }
 
   const threadId = await client.mutation(api.threads.getOrCreate, {
     shopId: shop._id,
     platform: "instagram",
     platformUserId: senderId,
-    customerName: customerName || undefined,
   });
 
-  const now = Date.now();
-  await client.mutation(api.messages.addMessage, {
+  // Get the thread to check for existing scheduled job
+  const thread = await client.query(api.threads.get, { threadId });
+  const existingJobId = thread?.scheduledJobId;
+
+  // Cancel existing scheduled job if present
+  if (existingJobId) {
+    console.log("Cancelling existing scheduled job:", existingJobId);
+    try {
+      await client.action(api.scheduler.cancelScheduledJob, {
+        jobId: existingJobId,
+      });
+    } catch (error) {
+      console.error("Error cancelling job:", error);
+      // Continue anyway - the job might have already run
+    }
+  }
+
+  // Get next sequence number for this thread
+  const sequenceNumber = await client.mutation(
+    api.threads.getNextSequenceNumber,
+    { threadId },
+  );
+
+  // Add message to pending queue
+  await client.mutation(api.pendingMessages.addPendingMessage, {
     threadId,
-    role: "user",
     content: messageText,
-    timestamp: now,
-    platformMessageId: platformMessageId ?? undefined,
-  });
-
-  const history = await client.query(api.messages.listByThread, {
-    threadId,
-    limit: 12,
-  });
-
-  const result = await runShopAssistant({
-    history: history.map((message) => ({
-      role: message.role,
-      content: message.content,
-    })),
-    storefront,
-  });
-
-  const allToolCalls = extractToolCalls(result.steps);
-  const model = DEFAULT_MODEL;
-  const usage = result.totalUsage;
-
-  await client.mutation(api.messages.addMessage, {
-    threadId,
-    role: "assistant",
-    content: result.text,
     timestamp: Date.now(),
-    reasoning: result.reasoning ? JSON.stringify(result.reasoning) : undefined,
-    toolCalls: allToolCalls,
-    aiMetadata: {
-      model,
-      totalTokens: usage?.totalTokens ?? 0,
-      reasoningTokens: usage?.reasoningTokens ?? 0,
-      inputTokens: usage?.inputTokens ?? 0,
-      outputTokens: usage?.outputTokens ?? 0,
-      costUsd: calculateCost(
-        model,
-        usage?.inputTokens ?? 0,
-        usage?.outputTokens ?? 0,
-      ),
-    },
+    platformMessageId: platformMessageId ?? undefined,
+    sequenceNumber,
   });
 
-  return { reply: result.text, accessToken: shop.metaPageAccessToken };
+  console.log(
+    `Queued message #${sequenceNumber} for thread ${threadId}. Scheduling batch processing...`,
+  );
+
+  // Schedule new batch processing job
+  const newJobId = await client.action(
+    api.scheduler.scheduleMessageProcessing,
+    {
+      threadId,
+      senderId,
+      pageId: instagramAccountId, // For Instagram, we use instagramAccountId as the page identifier
+      platform: "instagram",
+    },
+  );
+
+  // Update thread with new job ID
+  await client.mutation(api.threads.updateScheduledJob, {
+    threadId,
+    jobId: newJobId,
+  });
+
+  console.log("Scheduled batch processing job:", newJobId);
 }
 
 function createConvexClient() {
