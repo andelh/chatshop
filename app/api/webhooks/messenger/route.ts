@@ -278,6 +278,7 @@ async function generateShopifyReply({
     content: result.text,
     timestamp: Date.now(),
     reasoning: result.reasoning ? JSON.stringify(result.reasoning) : undefined,
+    toolCalls: result.toolCalls,
   });
 
   return result.text;
