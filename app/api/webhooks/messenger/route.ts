@@ -49,7 +49,8 @@ export async function POST(req: Request) {
               senderId,
               platformMessageId,
             });
-            await sendMessage(senderId, reply);
+            console.log({ reply });
+            // await sendMessage(senderId, reply);
           }
         }
       }
@@ -271,11 +272,44 @@ async function generateShopifyReply({
     tools,
     providerOptions: {
       openai: {
+        reasoningEffort: "medium",
         reasoningSummary: "auto", // 'auto' for condensed or 'detailed' for comprehensive
       },
     },
     stopWhen: stepCountIs(10),
   });
+
+  // Log detailed step information
+  console.log("\n🤖 AI Response Generated:");
+  console.log(`Reasoning tokens: ${result.totalUsage?.reasoningTokens || 0}`);
+  console.log(`Total tokens: ${result.totalUsage?.totalTokens || 0}`);
+
+  console.log("\n📋 Execution Steps:");
+  result.steps.forEach((step, index) => {
+    console.log(`\n--- Step ${index + 1} ---`);
+    console.log(`Tool calls: ${step.toolCalls?.length || 0}`);
+
+    step.toolCalls?.forEach((toolCall: any, toolIndex: number) => {
+      console.log(`\n  Tool ${toolIndex + 1}: ${toolCall.toolName}`);
+      console.log(`  Args: ${JSON.stringify(toolCall.args, null, 2)}`);
+      if (toolCall.result) {
+        console.log(
+          `  Result: ${JSON.stringify(toolCall.result, null, 2).substring(0, 200)}...`,
+        );
+      }
+      if (toolCall.error) {
+        console.log(`  Error: ${toolCall.error}`);
+      }
+    });
+
+    if (step.text) {
+      console.log(`\n  Step text: ${step.text.substring(0, 100)}...`);
+    }
+  });
+
+  console.log("\n💬 Final Response:");
+  console.log(result.text);
+  console.log("\n" + "=".repeat(50) + "\n");
 
   await client.mutation(api.messages.addMessage, {
     threadId,
