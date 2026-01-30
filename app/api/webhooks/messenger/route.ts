@@ -37,6 +37,7 @@ export async function POST(req: Request) {
     console.log("📨 Webhook received:", JSON.stringify(body, null, 2));
 
     if (body.object === "page") {
+      const client = createConvexClient();
       for (const entry of body.entry) {
         const pageId = entry.id;
         for (const webhookEvent of entry.messaging ?? []) {
@@ -54,6 +55,17 @@ export async function POST(req: Request) {
             const senderId = webhookEvent.sender.id;
             const messageText = webhookEvent.message.text;
             const platformMessageId = webhookEvent.message.mid ?? null;
+
+            if (platformMessageId) {
+              const existingMessage = await client.query(
+                api.messages.getByPlatformMessageId,
+                { platformMessageId },
+              );
+              if (existingMessage) {
+                console.log("Skipping duplicate message:", platformMessageId);
+                continue;
+              }
+            }
 
             console.log(`📩 Message from ${senderId}: ${messageText}`);
 

@@ -19,6 +19,20 @@ export const listByThread = query({
   },
 });
 
+export const getByPlatformMessageId = query({
+  args: {
+    platformMessageId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("messages")
+      .withIndex("by_platform_message_id", (q) =>
+        q.eq("platformMessageId", args.platformMessageId),
+      )
+      .first();
+  },
+});
+
 export const addMessage = mutation({
   args: {
     threadId: v.id("threads"),

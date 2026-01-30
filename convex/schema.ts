@@ -73,5 +73,7 @@ export default defineSchema({
         costUsd: v.number(), // Calculated cost in USD
       }),
     ),
-  }).index("by_thread", ["threadId", "timestamp"]),
+  })
+    .index("by_thread", ["threadId", "timestamp"])
+    .index("by_platform_message_id", ["platformMessageId"]),
 });
