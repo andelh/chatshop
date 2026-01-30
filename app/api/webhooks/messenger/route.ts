@@ -1,33 +1,18 @@
 // app/api/webhooks/messenger/route.ts
 
-import { openai } from "@ai-sdk/openai";
-import { generateText, stepCountIs, tool } from "ai";
 import { ConvexHttpClient } from "convex/browser";
-import { z } from "zod";
 import { api } from "@/convex/_generated/api";
-import { ISUPPLY_SYSTEM_PROMPT } from "@/lib/ai/systemPrompt";
-import { shopifyFetch } from "@/lib/shopify";
-
-// Model pricing from models.dev (per 1M tokens in USD)
-const MODEL_PRICING: Record<string, { input: number; output: number }> = {
-  "gpt-5.2": { input: 1.75, output: 14.0 },
-  "gpt-5.2-codex": { input: 1.75, output: 14.0 },
-  "gpt-5.1": { input: 1.25, output: 10.0 },
-  "gpt-4o": { input: 2.5, output: 10.0 },
-  "o3-mini": { input: 1.1, output: 4.4 },
-  // Add more as needed
-};
-
-function calculateCost(
-  model: string,
-  inputTokens: number,
-  outputTokens: number,
-): number {
-  const pricing = MODEL_PRICING[model] || { input: 2.0, output: 10.0 }; // Default fallback
-  const inputCost = (inputTokens / 1_000_000) * pricing.input;
-  const outputCost = (outputTokens / 1_000_000) * pricing.output;
-  return inputCost + outputCost;
-}
+import { calculateCost } from "@/lib/ai/cost";
+import {
+  DEFAULT_MODEL,
+  extractToolCalls,
+  logAssistantResult,
+  runShopAssistant,
+} from "@/lib/ai/shop-assistant";
+import {
+  fetchMessengerProfileName,
+  sendMetaMessage,
+} from "@/lib/meta/messaging";
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
@@ -64,13 +49,20 @@ export async function POST(req: Request) {
 
             console.log(`📩 Message from ${senderId}: ${messageText}`);
 
-            const reply = await generateShopifyReply({
+            const { reply, accessToken } = await generateShopifyReply({
               messageText,
               pageId,
               senderId,
               platformMessageId,
             });
-            await sendMessage(senderId, reply);
+            await sendMetaMessage({
+              recipientId: senderId,
+              text: reply,
+              accessToken:
+                accessToken ??
+                process.env.META_PAGE_ACCESS_TOKEN ??
+                process.env.NEXT_PUBLIC_META_PAGE_ACCESS_TOKEN,
+            });
           }
         }
       }
@@ -93,14 +85,19 @@ async function generateShopifyReply({
   pageId: string;
   senderId: string;
   platformMessageId?: string | null;
-}) {
+}): Promise<{ reply: string; accessToken?: string }> {
   const client = createConvexClient();
   const shop = await client.query(api.shops.getByMetaPageId, {
     metaPageId: pageId,
   });
 
   if (!shop) {
-    return "Thanks for your message. We could not identify this shop yet.";
+    return {
+      reply: "Thanks for your message. We could not identify this shop yet.",
+      accessToken:
+        process.env.META_PAGE_ACCESS_TOKEN ??
+        process.env.NEXT_PUBLIC_META_PAGE_ACCESS_TOKEN,
+    };
   }
 
   const storefront = {
@@ -143,243 +140,18 @@ async function generateShopifyReply({
     limit: 12,
   });
 
-  const tools = {
-    getProductAvailability: tool({
-      description: "Check Shopify product availability by name or query string",
-      inputSchema: z.object({
-        search: z
-          .string()
-          .describe(
-            'Product name or Shopify search query (e.g. iPhone 16 or title:"iPhone 16")',
-          ),
-      }),
-      execute: async ({ search }) => {
-        // Use flexible search across all product fields (title, description, tags, etc.)
-        const searchQuery = search;
-
-        const response = await shopifyFetch({
-          query: `query ProductAvailability($query: String!) {
-            products(first: 15, query: $query) {
-              edges {
-                node {
-                  id
-                  title
-                  handle
-                  description
-                  productType
-                  tags
-                  availableForSale
-                  priceRange {
-                    minVariantPrice {
-                      amount
-                      currencyCode
-                    }
-                    maxVariantPrice {
-                      amount
-                      currencyCode
-                    }
-                  }
-                  options {
-                    id
-                    name
-                    values
-                  }
-                  variants(first: 10) {
-                    edges {
-                      node {
-                        id
-                        title
-                        availableForSale
-                        quantityAvailable
-                        price {
-                          amount
-                          currencyCode
-                        }
-                        compareAtPrice {
-                          amount
-                          currencyCode
-                        }
-                        selectedOptions {
-                          name
-                          value
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }`,
-          variables: { query: searchQuery },
-          storefront,
-        });
-
-        const products =
-          response.body?.data?.products?.edges?.map((edge: { node: any }) => {
-            const product = edge.node;
-            return {
-              id: product.id,
-              title: product.title,
-              handle: product.handle,
-              description: product.description,
-              productType: product.productType,
-              tags: product.tags,
-              availableForSale: product.availableForSale,
-              priceRange: product.priceRange,
-              options: product.options,
-              variants: product.variants.edges.map(
-                (variantEdge: { node: any }) => ({
-                  id: variantEdge.node.id,
-                  title: variantEdge.node.title,
-                  availableForSale: variantEdge.node.availableForSale,
-                  quantityAvailable: variantEdge.node.quantityAvailable,
-                  price: variantEdge.node.price,
-                  compareAtPrice: variantEdge.node.compareAtPrice,
-                  selectedOptions: variantEdge.node.selectedOptions,
-                }),
-              ),
-            };
-          }) ?? [];
-
-        return {
-          query: searchQuery,
-          products,
-          errors: response.body?.errors ?? null,
-        };
-      },
-    }),
-    getProductCategories: tool({
-      description: "List available Shopify product categories (collections)",
-      inputSchema: z.object({
-        query: z
-          .string()
-          .optional()
-          .describe(
-            "Optional search query for collections (e.g. title:'Phones')",
-          ),
-      }),
-      execute: async ({ query }) => {
-        const response = await shopifyFetch({
-          query: `query ProductCategories($query: String) {
-            collections(first: 50, query: $query) {
-              edges {
-                node {
-                  id
-                  title
-                  handle
-                  description
-                  updatedAt
-                }
-              }
-            }
-          }`,
-          variables: { query: query ?? null },
-          storefront,
-        });
-
-        const categories =
-          response.body?.data?.collections?.edges?.map(
-            (edge: { node: any }) => ({
-              id: edge.node.id,
-              title: edge.node.title,
-              handle: edge.node.handle,
-              description: edge.node.description,
-              updatedAt: edge.node.updatedAt,
-            }),
-          ) ?? [];
-
-        return {
-          query: query ?? null,
-          categories,
-          errors: response.body?.errors ?? null,
-        };
-      },
-    }),
-  };
-
-  const result = await generateText({
-    model: openai("gpt-5.2"),
-    system: ISUPPLY_SYSTEM_PROMPT,
-    messages: history.map((message) => ({
+  const result = await runShopAssistant({
+    history: history.map((message) => ({
       role: message.role,
       content: message.content,
     })),
-    tools,
-    providerOptions: {
-      openai: {
-        reasoningEffort: "medium",
-        reasoningSummary: "auto", // 'auto' for condensed or 'detailed' for comprehensive
-      },
-    },
-    stopWhen: stepCountIs(10),
+    storefront,
   });
 
-  // Log detailed step information
-  console.log("\n🤖 AI Response Generated:");
-  console.log(`Reasoning tokens: ${result.totalUsage?.reasoningTokens || 0}`);
-  console.log(`Total tokens: ${result.totalUsage?.totalTokens || 0}`);
+  logAssistantResult(result);
 
-  console.log("\n📋 Execution Steps:");
-  result.steps.forEach((step, index) => {
-    console.log(`\n--- Step ${index + 1} ---`);
-    console.log(`Tool calls: ${step.toolCalls?.length || 0}`);
-
-    step.toolCalls?.forEach((toolCall: any, toolIndex: number) => {
-      console.log(
-        `\n  Tool ${toolIndex + 1}: ${toolCall.toolName || toolCall.tool?.name || "unknown"}`,
-      );
-      console.log(
-        `  Tool Call ID: ${toolCall.toolCallId || toolCall.callId || "N/A"}`,
-      );
-
-      // Try multiple possible locations for args
-      const args =
-        toolCall.args ||
-        toolCall.parameters ||
-        toolCall.arguments ||
-        toolCall.input;
-      console.log(`  Args: ${JSON.stringify(args, null, 2)}`);
-
-      if (toolCall.result || toolCall.output || toolCall.response) {
-        const result = toolCall.result || toolCall.output || toolCall.response;
-        console.log(
-          `  Result: ${JSON.stringify(result, null, 2).substring(0, 200)}...`,
-        );
-      }
-      if (toolCall.error) {
-        console.log(`  Error: ${toolCall.error}`);
-      }
-    });
-
-    if (step.text) {
-      console.log(`\n  Step text: ${step.text.substring(0, 100)}...`);
-    }
-  });
-
-  console.log("\n💬 Final Response:");
-  console.log(result.text);
-  console.log("\n" + "=".repeat(50) + "\n");
-
-  // Aggregate all tool calls from all steps
-  const allToolCalls =
-    result.steps?.flatMap(
-      (step: any) =>
-        step.toolCalls?.map((toolCall: any) => ({
-          toolCallId: toolCall.toolCallId || toolCall.callId,
-          toolName: toolCall.toolName || toolCall.tool?.name,
-          args:
-            toolCall.args ||
-            toolCall.parameters ||
-            toolCall.arguments ||
-            toolCall.input,
-          result: toolCall.result || toolCall.output || toolCall.response,
-          state:
-            toolCall.state ||
-            (toolCall.result ? "output-available" : "input-available"),
-        })) || [],
-    ) || [];
-
-  const model = "gpt-5.2"; // Or however you're determining the model
+  const allToolCalls = extractToolCalls(result.steps);
+  const model = DEFAULT_MODEL;
   const usage = result.totalUsage;
 
   await client.mutation(api.messages.addMessage, {
@@ -403,31 +175,7 @@ async function generateShopifyReply({
     },
   });
 
-  return result.text;
-}
-
-async function fetchMessengerProfileName(
-  senderId: string,
-  pageAccessToken: string,
-): Promise<string | undefined> {
-  try {
-    const url = new URL(`https://graph.facebook.com/v18.0/${senderId}`);
-    url.searchParams.set("fields", "first_name,last_name");
-    url.searchParams.set("access_token", pageAccessToken);
-
-    const response = await fetch(url.toString());
-    if (!response.ok) return undefined;
-
-    const data = await response.json();
-    const fullName = [data.first_name, data.last_name]
-      .filter(Boolean)
-      .join(" ")
-      .trim();
-
-    return fullName || undefined;
-  } catch {
-    return undefined;
-  }
+  return { reply: result.text, accessToken: shop.metaPageAccessToken };
 }
 
 function createConvexClient() {
@@ -438,25 +186,4 @@ function createConvexClient() {
   }
 
   return new ConvexHttpClient(url);
-}
-
-// Helper function to send messages
-async function sendMessage(recipientId: string, text: string) {
-  const PAGE_ACCESS_TOKEN = process.env.META_PAGE_ACCESS_TOKEN;
-
-  const response = await fetch(`https://graph.facebook.com/v18.0/me/messages`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      recipient: { id: recipientId },
-      message: { text },
-      access_token: PAGE_ACCESS_TOKEN,
-    }),
-  });
-
-  const data = await response.json();
-  console.log("✉️ Reply sent:", data);
-  return data;
 }
