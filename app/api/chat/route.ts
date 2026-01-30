@@ -43,13 +43,12 @@ export async function POST(req: Request) {
             ),
         }),
         execute: async ({ search }) => {
-          const searchQuery = /\w+:/.test(search)
-            ? search
-            : `title:${JSON.stringify(search)}`;
+          // Use flexible search across all product fields (title, description, tags, etc.)
+          const searchQuery = search;
 
           const response = await shopifyFetch({
             query: `query ProductAvailability($query: String!) {
-              products(first: 5, query: $query) {
+              products(first: 15, query: $query) {
                 edges {
                   node {
                     id
