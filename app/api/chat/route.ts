@@ -183,6 +183,11 @@ export async function POST(req: Request) {
         },
       }),
     },
+    providerOptions: {
+      openai: {
+        reasoningSummary: "auto",
+      },
+    },
   });
 
   return new Response(

@@ -269,6 +269,11 @@ async function generateShopifyReply({
       content: message.content,
     })),
     tools,
+    providerOptions: {
+      openai: {
+        reasoningSummary: "auto", // 'auto' for condensed or 'detailed' for comprehensive
+      },
+    },
     stopWhen: stepCountIs(10),
   });
 
