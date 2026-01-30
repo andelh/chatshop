@@ -10,3 +10,15 @@ export const getByMetaPageId = query({
       .first();
   },
 });
+
+export const getByInstagramAccountId = query({
+  args: { instagramAccountId: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("shops")
+      .withIndex("by_instagram_account", (q) =>
+        q.eq("instagramAccountId", args.instagramAccountId),
+      )
+      .first();
+  },
+});

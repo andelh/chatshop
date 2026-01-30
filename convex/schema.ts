@@ -11,13 +11,17 @@ export default defineSchema({
     metaPageId: v.string(),
     metaPageAccessToken: v.string(),
 
+    // Instagram Business Account ID (for IG webhooks)
+    instagramAccountId: v.optional(v.string()),
+
     settings: v.object({
       autoReplyEnabled: v.boolean(),
       businessHours: v.optional(v.any()),
     }),
   })
     .index("by_shopify_domain", ["shopifyDomain"])
-    .index("by_meta_page", ["metaPageId"]),
+    .index("by_meta_page", ["metaPageId"])
+    .index("by_instagram_account", ["instagramAccountId"]),
 
   // Conversation threads
   threads: defineTable({
