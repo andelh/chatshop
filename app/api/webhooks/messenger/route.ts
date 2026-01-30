@@ -8,6 +8,27 @@ import { api } from "@/convex/_generated/api";
 import { ISUPPLY_SYSTEM_PROMPT } from "@/lib/ai/systemPrompt";
 import { shopifyFetch } from "@/lib/shopify";
 
+// Model pricing from models.dev (per 1K tokens in USD)
+const MODEL_PRICING: Record<string, { input: number; output: number }> = {
+  "gpt-5.2": { input: 1.75, output: 14.0 },
+  "gpt-5.2-codex": { input: 1.75, output: 14.0 },
+  "gpt-5.1": { input: 1.25, output: 10.0 },
+  "gpt-4o": { input: 2.5, output: 10.0 },
+  "o3-mini": { input: 1.1, output: 4.4 },
+  // Add more as needed
+};
+
+function calculateCost(
+  model: string,
+  inputTokens: number,
+  outputTokens: number,
+): number {
+  const pricing = MODEL_PRICING[model] || { input: 2.0, output: 10.0 }; // Default fallback
+  const inputCost = (inputTokens / 1000) * pricing.input;
+  const outputCost = (outputTokens / 1000) * pricing.output;
+  return inputCost + outputCost;
+}
+
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const mode = searchParams.get("hub.mode");
@@ -344,6 +365,9 @@ async function generateShopifyReply({
         })) || [],
     ) || [];
 
+  const model = "gpt-5.2"; // Or however you're determining the model
+  const usage = result.totalUsage;
+
   await client.mutation(api.messages.addMessage, {
     threadId,
     role: "assistant",
@@ -351,6 +375,18 @@ async function generateShopifyReply({
     timestamp: Date.now(),
     reasoning: result.reasoning ? JSON.stringify(result.reasoning) : undefined,
     toolCalls: allToolCalls,
+    aiMetadata: {
+      model,
+      totalTokens: usage?.totalTokens ?? 0,
+      reasoningTokens: usage?.reasoningTokens ?? 0,
+      inputTokens: usage?.inputTokens ?? 0,
+      outputTokens: usage?.outputTokens ?? 0,
+      costUsd: calculateCost(
+        model,
+        usage?.inputTokens ?? 0,
+        usage?.outputTokens ?? 0,
+      ),
+    },
   });
 
   return result.text;

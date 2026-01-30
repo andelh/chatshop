@@ -31,6 +31,11 @@ export default defineSchema({
     // Optional metadata
     customerName: v.optional(v.string()),
     unreadCount: v.number(),
+
+    // Thread aggregates (updated on each message)
+    totalMessages: v.optional(v.number()),
+    totalTokens: v.optional(v.number()),
+    totalCostUsd: v.optional(v.number()),
   })
     .index("by_shop_and_user", ["shopId", "platformUserId"])
     .index("by_shop_platform_user", ["shopId", "platform", "platformUserId"])
@@ -52,5 +57,17 @@ export default defineSchema({
 
     // Optional: track reasoning/thinking process
     reasoning: v.optional(v.string()),
+
+    // AI metadata for assistant messages
+    aiMetadata: v.optional(
+      v.object({
+        model: v.string(), // e.g., "gpt-5.2"
+        totalTokens: v.number(),
+        reasoningTokens: v.number(),
+        inputTokens: v.number(),
+        outputTokens: v.number(),
+        costUsd: v.number(), // Calculated cost in USD
+      }),
+    ),
   }).index("by_thread", ["threadId", "timestamp"]),
 });

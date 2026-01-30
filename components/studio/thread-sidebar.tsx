@@ -93,6 +93,37 @@ export function ThreadSidebar({
         <p className="text-sm text-muted-foreground mt-1">
           {threads.length} active thread{threads.length !== 1 ? "s" : ""}
         </p>
+        {/* Aggregate Stats */}
+        <div className="mt-3 pt-3 border-t border-border/50 space-y-1">
+          {(() => {
+            const totalMessages = threads.reduce(
+              (sum, t) => sum + (t.totalMessages || 0),
+              0,
+            );
+            const totalTokens = threads.reduce(
+              (sum, t) => sum + (t.totalTokens || 0),
+              0,
+            );
+            const totalCost = threads.reduce(
+              (sum, t) => sum + (t.totalCostUsd || 0),
+              0,
+            );
+
+            return (
+              <>
+                <p className="text-xs text-muted-foreground">
+                  {totalMessages.toLocaleString()} messages
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {totalTokens.toLocaleString()} tokens
+                </p>
+                <p className="text-xs text-muted-foreground font-medium">
+                  ${totalCost.toFixed(2)} total cost
+                </p>
+              </>
+            );
+          })()}
+        </div>
       </div>
 
       <Separator />

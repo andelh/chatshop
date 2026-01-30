@@ -32,6 +32,14 @@ interface MessageItemProps {
   timestamp: number;
   toolCalls?: any[];
   reasoning?: string;
+  aiMetadata?: {
+    model: string;
+    totalTokens: number;
+    reasoningTokens: number;
+    inputTokens: number;
+    outputTokens: number;
+    costUsd: number;
+  };
 }
 
 function ToolCallDisplay({ tool }: { tool: any }) {
@@ -89,6 +97,7 @@ function MessageItem({
   timestamp,
   toolCalls,
   reasoning,
+  aiMetadata,
 }: MessageItemProps) {
   const isUser = role === "user";
   const parsedReasoning = parseReasoning(reasoning);
@@ -153,6 +162,22 @@ function MessageItem({
         >
           <p className="whitespace-pre-wrap">{content}</p>
         </div>
+
+        {/* AI Metadata */}
+        {!isUser && aiMetadata && (
+          <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
+            <span className="bg-muted px-2 py-0.5 rounded">
+              {aiMetadata.model}
+            </span>
+            <span>{aiMetadata.totalTokens.toLocaleString()} tokens</span>
+            {aiMetadata.reasoningTokens > 0 && (
+              <span>
+                {aiMetadata.reasoningTokens.toLocaleString()} reasoning
+              </span>
+            )}
+            <span>${aiMetadata.costUsd.toFixed(4)}</span>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -243,6 +268,7 @@ export function ConversationView({ threadId }: ConversationViewProps) {
                 timestamp={message.timestamp}
                 toolCalls={message.toolCalls}
                 reasoning={message.reasoning}
+                aiMetadata={message.aiMetadata}
               />
             ))}
           </div>

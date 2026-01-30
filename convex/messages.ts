@@ -27,6 +27,16 @@ export const addMessage = mutation({
     platformMessageId: v.optional(v.string()),
     toolCalls: v.optional(v.array(v.any())),
     reasoning: v.optional(v.string()),
+    aiMetadata: v.optional(
+      v.object({
+        model: v.string(),
+        totalTokens: v.number(),
+        reasoningTokens: v.number(),
+        inputTokens: v.number(),
+        outputTokens: v.number(),
+        costUsd: v.number(),
+      }),
+    ),
   },
   handler: async (ctx, args) => {
     const messageId = await ctx.db.insert("messages", {
@@ -37,15 +47,27 @@ export const addMessage = mutation({
       platformMessageId: args.platformMessageId,
       toolCalls: args.toolCalls,
       reasoning: args.reasoning,
+      aiMetadata: args.aiMetadata,
     });
 
     const thread = await ctx.db.get(args.threadId);
     if (thread) {
       const unreadCount =
         args.role === "assistant" ? 0 : (thread.unreadCount ?? 0) + 1;
+
+      // Update thread aggregates
+      const totalMessages = (thread.totalMessages ?? 0) + 1;
+      const totalTokens =
+        (thread.totalTokens ?? 0) + (args.aiMetadata?.totalTokens ?? 0);
+      const totalCostUsd =
+        (thread.totalCostUsd ?? 0) + (args.aiMetadata?.costUsd ?? 0);
+
       await ctx.db.patch(args.threadId, {
         lastMessageAt: args.timestamp,
         unreadCount,
+        totalMessages,
+        totalTokens,
+        totalCostUsd,
       });
     }
 
