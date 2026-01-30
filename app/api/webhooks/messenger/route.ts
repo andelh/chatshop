@@ -130,7 +130,25 @@ async function generateShopifyReply({
                   id
                   title
                   handle
+                  description
+                  productType
+                  tags
                   availableForSale
+                  priceRange {
+                    minVariantPrice {
+                      amount
+                      currencyCode
+                    }
+                    maxVariantPrice {
+                      amount
+                      currencyCode
+                    }
+                  }
+                  options {
+                    id
+                    name
+                    values
+                  }
                   variants(first: 10) {
                     edges {
                       node {
@@ -138,6 +156,18 @@ async function generateShopifyReply({
                         title
                         availableForSale
                         quantityAvailable
+                        price {
+                          amount
+                          currencyCode
+                        }
+                        compareAtPrice {
+                          amount
+                          currencyCode
+                        }
+                        selectedOptions {
+                          name
+                          value
+                        }
                       }
                     }
                   }
@@ -156,13 +186,21 @@ async function generateShopifyReply({
               id: product.id,
               title: product.title,
               handle: product.handle,
+              description: product.description,
+              productType: product.productType,
+              tags: product.tags,
               availableForSale: product.availableForSale,
+              priceRange: product.priceRange,
+              options: product.options,
               variants: product.variants.edges.map(
                 (variantEdge: { node: any }) => ({
                   id: variantEdge.node.id,
                   title: variantEdge.node.title,
                   availableForSale: variantEdge.node.availableForSale,
                   quantityAvailable: variantEdge.node.quantityAvailable,
+                  price: variantEdge.node.price,
+                  compareAtPrice: variantEdge.node.compareAtPrice,
+                  selectedOptions: variantEdge.node.selectedOptions,
                 }),
               ),
             };
@@ -232,7 +270,7 @@ async function generateShopifyReply({
       content: message.content,
     })),
     tools,
-    stopWhen: stepCountIs(5),
+    stopWhen: stepCountIs(10),
   });
 
   await client.mutation(api.messages.addMessage, {

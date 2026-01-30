@@ -17,7 +17,7 @@ export async function POST(req: Request) {
     model: openai("gpt-5.2-codex"),
     system: ISUPPLY_SYSTEM_PROMPT,
     messages: await convertToModelMessages(messages),
-    stopWhen: stepCountIs(5),
+    stopWhen: stepCountIs(10),
     tools: {
       weather: tool({
         description: "Get the weather in a location (fahrenheit)",
@@ -55,7 +55,25 @@ export async function POST(req: Request) {
                     id
                     title
                     handle
+                    description
+                    productType
+                    tags
                     availableForSale
+                    priceRange {
+                      minVariantPrice {
+                        amount
+                        currencyCode
+                      }
+                      maxVariantPrice {
+                        amount
+                        currencyCode
+                      }
+                    }
+                    options {
+                      id
+                      name
+                      values
+                    }
                     variants(first: 10) {
                       edges {
                         node {
@@ -63,13 +81,25 @@ export async function POST(req: Request) {
                           title
                           availableForSale
                           quantityAvailable
+                          price {
+                            amount
+                            currencyCode
+                          }
+                          compareAtPrice {
+                            amount
+                            currencyCode
+                          }
+                          selectedOptions {
+                            name
+                            value
+                          }
                         }
                       }
                     }
                   }
                 }
               }
-            }`,
+            `,
             variables: { query: searchQuery },
           });
 
@@ -80,13 +110,21 @@ export async function POST(req: Request) {
                 id: product.id,
                 title: product.title,
                 handle: product.handle,
+                description: product.description,
+                productType: product.productType,
+                tags: product.tags,
                 availableForSale: product.availableForSale,
+                priceRange: product.priceRange,
+                options: product.options,
                 variants: product.variants.edges.map(
                   (variantEdge: { node: any }) => ({
                     id: variantEdge.node.id,
                     title: variantEdge.node.title,
                     availableForSale: variantEdge.node.availableForSale,
                     quantityAvailable: variantEdge.node.quantityAvailable,
+                    price: variantEdge.node.price,
+                    compareAtPrice: variantEdge.node.compareAtPrice,
+                    selectedOptions: variantEdge.node.selectedOptions,
                   }),
                 ),
               };
