@@ -1,8 +1,8 @@
 import { openai } from "@ai-sdk/openai";
 import {
   convertToModelMessages,
+  generateText,
   stepCountIs,
-  streamText,
   tool,
   type UIMessage,
 } from "ai";
@@ -13,8 +13,8 @@ import { shopifyFetch } from "@/lib/shopify";
 export async function POST(req: Request) {
   const { messages }: { messages: UIMessage[] } = await req.json();
 
-  const result = streamText({
-    model: openai("gpt-5.2-codex"),
+  const result = await generateText({
+    model: openai("gpt-5.2"),
     system: ISUPPLY_SYSTEM_PROMPT,
     messages: await convertToModelMessages(messages),
     stopWhen: stepCountIs(10),
@@ -183,10 +183,16 @@ export async function POST(req: Request) {
         },
       }),
     },
-    onStepFinish: ({ toolResults }) => {
-      console.log(toolResults);
-    },
   });
 
-  return result.toUIMessageStreamResponse();
+  return new Response(
+    JSON.stringify({
+      text: result.text,
+      reasoning: result.reasoning,
+      toolCalls: result.toolCalls,
+    }),
+    {
+      headers: { "Content-Type": "application/json" },
+    },
+  );
 }
