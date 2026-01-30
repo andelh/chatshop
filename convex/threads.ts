@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { mutation } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
 
 export const getOrCreate = mutation({
   args: {
@@ -35,5 +35,36 @@ export const getOrCreate = mutation({
       customerName: args.customerName,
       unreadCount: 0,
     });
+  },
+});
+
+export const listByShop = query({
+  args: {
+    shopId: v.id("shops"),
+    limit: v.optional(v.number()),
+    status: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const limit = args.limit ?? 50;
+    const status = args.status ?? "active";
+
+    const threads = await ctx.db
+      .query("threads")
+      .withIndex("by_shop_status", (q) =>
+        q.eq("shopId", args.shopId).eq("status", status),
+      )
+      .order("desc")
+      .take(limit);
+
+    return threads;
+  },
+});
+
+export const get = query({
+  args: {
+    threadId: v.id("threads"),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.threadId);
   },
 });
