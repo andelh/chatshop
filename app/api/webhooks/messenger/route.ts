@@ -54,6 +54,7 @@ export async function POST(req: Request) {
               process.env.META_PAGE_ACCESS_TOKEN ??
               process.env.NEXT_PUBLIC_META_PAGE_ACCESS_TOKEN;
 
+            await sleep(5000);
             await sendTypingIndicator({
               recipientId: senderId,
               accessToken,
@@ -202,4 +203,8 @@ function createConvexClient() {
   }
 
   return new ConvexHttpClient(url);
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
