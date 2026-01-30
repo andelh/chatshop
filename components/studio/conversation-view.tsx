@@ -3,6 +3,18 @@
 import { useQuery } from "convex/react";
 import { formatDistanceToNow } from "date-fns";
 import { Bot, MessageSquare, User } from "lucide-react";
+import {
+  Reasoning,
+  ReasoningContent,
+  ReasoningTrigger,
+} from "@/components/ai-elements/reasoning";
+import {
+  Tool,
+  ToolContent,
+  ToolHeader,
+  ToolInput,
+  ToolOutput,
+} from "@/components/ai-elements/tool";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -19,6 +31,39 @@ interface MessageItemProps {
   role: "user" | "assistant";
   timestamp: number;
   toolCalls?: any[];
+  reasoning?: string;
+}
+
+function ToolCallDisplay({ tool }: { tool: any }) {
+  const toolName = tool.toolName || tool.name || "unknown";
+  const toolArgs = tool.args || tool.input || {};
+  const toolResult = tool.result || tool.output;
+  const hasError = tool.error || tool.state === "output-error";
+
+  return (
+    <Tool className="mt-2">
+      <ToolHeader
+        title={toolName}
+        type={`tool-call-${toolName}`}
+        state={
+          hasError
+            ? "output-error"
+            : toolResult
+              ? "output-available"
+              : "input-available"
+        }
+      />
+      <ToolContent>
+        <ToolInput input={toolArgs} />
+        {toolResult && (
+          <ToolOutput
+            output={toolResult}
+            errorText={hasError ? tool.error : undefined}
+          />
+        )}
+      </ToolContent>
+    </Tool>
+  );
 }
 
 function MessageItem({
@@ -26,6 +71,7 @@ function MessageItem({
   role,
   timestamp,
   toolCalls,
+  reasoning,
 }: MessageItemProps) {
   const isUser = role === "user";
 
@@ -45,7 +91,7 @@ function MessageItem({
 
       <div
         className={cn(
-          "flex-1 space-y-1 min-w-0",
+          "flex-1 space-y-2 min-w-0",
           isUser ? "items-end" : "items-start",
         )}
       >
@@ -58,6 +104,27 @@ function MessageItem({
           </span>
         </div>
 
+        {/* Tool Calls - show before the message */}
+        {!isUser && toolCalls && toolCalls.length > 0 && (
+          <div className="w-full max-w-[90%]">
+            {toolCalls.map((tool) => (
+              <ToolCallDisplay
+                key={tool.toolCallId || tool.name || tool.toolName}
+                tool={tool}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Reasoning/Thinking */}
+        {!isUser && reasoning && (
+          <Reasoning className="w-full max-w-[90%]">
+            <ReasoningTrigger />
+            <ReasoningContent>{reasoning}</ReasoningContent>
+          </Reasoning>
+        )}
+
+        {/* Message Content */}
         <div
           className={cn(
             "rounded-lg px-4 py-2 text-sm",
@@ -68,20 +135,6 @@ function MessageItem({
         >
           <p className="whitespace-pre-wrap">{content}</p>
         </div>
-
-        {toolCalls && toolCalls.length > 0 && (
-          <div className="mt-2 space-y-2">
-            {toolCalls.map((tool) => (
-              <div
-                key={tool.toolCallId || tool.name || tool.toolName}
-                className="text-xs bg-muted/50 rounded px-2 py-1 border border-border"
-              >
-                <span className="font-medium">Tool:</span>{" "}
-                {tool.name || tool.toolName}
-              </div>
-            ))}
-          </div>
-        )}
       </div>
     </div>
   );
@@ -171,6 +224,7 @@ export function ConversationView({ threadId }: ConversationViewProps) {
                 role={message.role}
                 timestamp={message.timestamp}
                 toolCalls={message.toolCalls}
+                reasoning={message.reasoning}
               />
             ))}
           </div>

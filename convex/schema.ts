@@ -49,5 +49,8 @@ export default defineSchema({
 
     // Optional: track tool usage
     toolCalls: v.optional(v.array(v.any())),
+
+    // Optional: track reasoning/thinking process
+    reasoning: v.optional(v.string()),
   }).index("by_thread", ["threadId", "timestamp"]),
 });
