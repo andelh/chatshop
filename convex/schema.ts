@@ -3,6 +3,20 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export default defineSchema({
+  // Global application settings (single row)
+  app_settings: defineTable({
+    // AI Model Configuration
+    aiProvider: v.string(), // "openai" | "google"
+    aiModel: v.string(), // e.g., "gpt-5.2", "gemini-2.0-flash"
+    providerOptions: v.optional(
+      v.object({
+        openaiReasoningEffort: v.optional(v.string()), // "low" | "medium" | "high"
+        googleThinkingLevel: v.optional(v.string()), // "low" | "medium" | "high"
+      }),
+    ),
+    updatedAt: v.number(),
+  }),
+
   shops: defineTable({
     shopifyDomain: v.string(),
     shopifyAccessToken: v.string(),
@@ -17,6 +31,10 @@ export default defineSchema({
     settings: v.object({
       autoReplyEnabled: v.boolean(),
       businessHours: v.optional(v.any()),
+      // Shop-wide agent pause controls
+      agentPaused: v.optional(v.boolean()),
+      agentPausedAt: v.optional(v.number()),
+      agentPausedReason: v.optional(v.string()),
     }),
   })
     .index("by_shopify_domain", ["shopifyDomain"])
@@ -44,6 +62,20 @@ export default defineSchema({
     // Scheduling state for message batching
     scheduledJobId: v.optional(v.string()),
     pendingSequenceCounter: v.optional(v.number()),
+
+    // Agent status for human-in-the-loop
+    agentStatus: v.optional(
+      v.union(
+        v.literal("active"), // AI responding normally
+        v.literal("paused"), // Human has taken over
+        v.literal("handoff"), // AI requested handoff
+        v.literal("pending_human"), // Waiting for human response
+      ),
+    ),
+    agentPausedAt: v.optional(v.number()),
+    agentPausedReason: v.optional(v.string()),
+    lastHumanMessageAt: v.optional(v.number()),
+    hasHumanIntervention: v.optional(v.boolean()),
   })
     .index("by_shop_and_user", ["shopId", "platformUserId"])
     .index("by_shop_platform_user", ["shopId", "platform", "platformUserId"])
@@ -65,7 +97,11 @@ export default defineSchema({
   messages: defineTable({
     threadId: v.id("threads"),
 
-    role: v.union(v.literal("user"), v.literal("assistant")), // "user" or "assistant"
+    role: v.union(
+      v.literal("user"), // Customer
+      v.literal("assistant"), // AI Agent
+      v.literal("human_agent"), // Human agent via dashboard
+    ),
     content: v.string(),
     timestamp: v.number(),
 

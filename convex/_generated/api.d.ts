@@ -11,10 +11,12 @@
 import type * as aggregates from "../aggregates.js";
 import type * as lib_cost from "../lib/cost.js";
 import type * as lib_messaging from "../lib/messaging.js";
+import type * as lib_model_provider from "../lib/model_provider.js";
 import type * as messages from "../messages.js";
 import type * as pendingMessages from "../pendingMessages.js";
 import type * as scheduledActions from "../scheduledActions.js";
 import type * as scheduler from "../scheduler.js";
+import type * as settings from "../settings.js";
 import type * as shops from "../shops.js";
 import type * as threads from "../threads.js";
 
@@ -28,10 +30,12 @@ declare const fullApi: ApiFromModules<{
   aggregates: typeof aggregates;
   "lib/cost": typeof lib_cost;
   "lib/messaging": typeof lib_messaging;
+  "lib/model_provider": typeof lib_model_provider;
   messages: typeof messages;
   pendingMessages: typeof pendingMessages;
   scheduledActions: typeof scheduledActions;
   scheduler: typeof scheduler;
+  settings: typeof settings;
   shops: typeof shops;
   threads: typeof threads;
 }>;
