@@ -1,8 +1,10 @@
 "use client";
 
-import { Menu } from "lucide-react";
+import { Menu, Settings } from "lucide-react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
+import { ModelSelectorToolbar } from "@/components/studio/model-selector-toolbar";
 import { ThreadSidebar } from "@/components/studio/thread-sidebar";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -63,7 +65,26 @@ export default function StudioLayout({
 
       {/* Main Content */}
       <main className={cn("flex-1 flex flex-col min-w-0 overflow-hidden")}>
-        {children}
+        {/* Header with Model Selector */}
+        <header className="h-14 border-b border-border bg-card flex items-center justify-between px-4 shrink-0">
+          <div className="flex items-center gap-4">
+            <span className="text-sm font-medium text-muted-foreground hidden sm:inline">
+              Studio
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <ModelSelectorToolbar />
+            <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
+              <Link href="/settings">
+                <Settings className="h-4 w-4" />
+                <span className="sr-only">Settings</span>
+              </Link>
+            </Button>
+          </div>
+        </header>
+
+        {/* Page Content */}
+        <div className="flex-1 overflow-hidden">{children}</div>
       </main>
     </div>
   );

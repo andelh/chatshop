@@ -1,13 +1,19 @@
 "use client";
 
-import { useQuery } from "convex/react";
-import { ArrowLeft } from "lucide-react";
+import { useMutation, useQuery } from "convex/react";
+import { ArrowLeft, Pause, Play, UserCircle } from "lucide-react";
 import Link from "next/link";
 import { notFound, useParams } from "next/navigation";
 import { ConversationView } from "@/components/studio/conversation-view";
 import { PlatformIcon } from "@/components/studio/platform-icon";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 
@@ -25,6 +31,8 @@ export default function ThreadPage() {
 
 function ThreadPageClient({ threadId }: { threadId: Id<"threads"> }) {
   const thread = useQuery(api.threads.get, { threadId });
+  const pauseThread = useMutation(api.threads.pauseThread);
+  const resumeThread = useMutation(api.threads.resumeThread);
 
   if (thread === undefined) {
     return (
@@ -53,6 +61,55 @@ function ThreadPageClient({ threadId }: { threadId: Id<"threads"> }) {
   }
 
   const customerName = thread.customerName || "Unknown Customer";
+  const agentStatus = thread.agentStatus ?? "active";
+  const isPaused = agentStatus === "paused" || agentStatus === "handoff";
+
+  const handlePause = async () => {
+    try {
+      await pauseThread({
+        threadId,
+        reason: "Manually paused by human agent",
+      });
+    } catch (error) {
+      console.error("Failed to pause thread:", error);
+    }
+  };
+
+  const handleResume = async () => {
+    try {
+      await resumeThread({ threadId });
+    } catch (error) {
+      console.error("Failed to resume thread:", error);
+    }
+  };
+
+  const getStatusBadge = () => {
+    switch (agentStatus) {
+      case "paused":
+        return (
+          <Badge variant="secondary" className="shrink-0">
+            <Pause className="h-3 w-3 mr-1" />
+            Paused
+          </Badge>
+        );
+      case "handoff":
+        return (
+          <Badge variant="destructive" className="shrink-0">
+            <UserCircle className="h-3 w-3 mr-1" />
+            Handoff
+          </Badge>
+        );
+      case "pending_human":
+        return (
+          <Badge variant="outline" className="shrink-0">
+            <UserCircle className="h-3 w-3 mr-1" />
+            Pending Human
+          </Badge>
+        );
+      default:
+        return null;
+    }
+  };
 
   return (
     <div className="flex-1 flex flex-col h-full">
@@ -78,9 +135,42 @@ function ThreadPageClient({ threadId }: { threadId: Id<"threads"> }) {
           </p>
         </div>
 
-        <Badge variant="outline" className="capitalize shrink-0">
-          {thread.status}
-        </Badge>
+        <div className="flex items-center gap-2">
+          {getStatusBadge()}
+
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={isPaused ? "default" : "outline"}
+                  size="sm"
+                  onClick={isPaused ? handleResume : handlePause}
+                >
+                  {isPaused ? (
+                    <>
+                      <Play className="h-4 w-4 mr-1" />
+                      Resume AI
+                    </>
+                  ) : (
+                    <>
+                      <Pause className="h-4 w-4 mr-1" />
+                      Pause AI
+                    </>
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {isPaused
+                  ? "Resume AI responses for this conversation"
+                  : "Pause AI and take over this conversation"}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          <Badge variant="outline" className="capitalize shrink-0">
+            {thread.status}
+          </Badge>
+        </div>
       </header>
 
       {/* Conversation */}

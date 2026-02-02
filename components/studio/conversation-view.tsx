@@ -1,8 +1,9 @@
 "use client";
 
-import { useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { formatDistanceToNow } from "date-fns";
-import { Bot, MessageSquare, User } from "lucide-react";
+import { Bot, MessageSquare, RefreshCw, User } from "lucide-react";
+import { useState } from "react";
 import {
   Reasoning,
   ReasoningContent,
@@ -16,19 +17,30 @@ import {
   ToolOutput,
 } from "@/components/ai-elements/tool";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
+import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
+import { MessageComposer } from "./message-composer";
 
 interface ConversationViewProps {
   threadId: Id<"threads">;
+  thread?: Doc<"threads">;
 }
 
 interface MessageItemProps {
+  messageId: Id<"messages">;
+  threadId: Id<"threads">;
   content: string;
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "human_agent";
   timestamp: number;
   toolCalls?: any[];
   reasoning?: string;
@@ -86,6 +98,8 @@ function parseReasoning(reasoning: string | undefined): string | null {
 }
 
 function MessageItem({
+  messageId,
+  threadId,
   content,
   role,
   timestamp,
@@ -94,19 +108,56 @@ function MessageItem({
   aiMetadata,
 }: MessageItemProps) {
   const isUser = role === "user";
+  const isHumanAgent = role === "human_agent";
+  const isAssistant = role === "assistant";
   const parsedReasoning = parseReasoning(reasoning);
+  const [isRetrying, setIsRetrying] = useState(false);
+  const retryMessage = useAction(api.messages.retryAIResponse);
+
+  const handleRetry = async () => {
+    setIsRetrying(true);
+    try {
+      await retryMessage({
+        threadId,
+        messageId,
+      });
+    } catch (error) {
+      console.error("Failed to retry message:", error);
+      alert("Failed to retry message. Please try again.");
+    } finally {
+      setIsRetrying(false);
+    }
+  };
 
   return (
     <div
-      className={cn("flex gap-3 py-4 px-4", isUser ? "flex-row" : "flex-row")}
+      className={cn(
+        "group flex gap-3 py-4 px-4",
+        isUser ? "flex-row" : "flex-row",
+      )}
     >
       <Avatar
-        className={cn("h-8 w-8 shrink-0", isUser ? "bg-primary" : "bg-muted")}
+        className={cn(
+          "h-8 w-8 shrink-0",
+          isUser ? "bg-primary" : isHumanAgent ? "bg-green-600" : "bg-muted",
+        )}
       >
         <AvatarFallback
-          className={isUser ? "bg-primary text-primary-foreground" : "bg-muted"}
+          className={
+            isUser
+              ? "bg-primary text-primary-foreground"
+              : isHumanAgent
+                ? "bg-green-600 text-white"
+                : "bg-muted"
+          }
         >
-          {isUser ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
+          {isUser ? (
+            <User className="h-4 w-4" />
+          ) : isHumanAgent ? (
+            <User className="h-4 w-4" />
+          ) : (
+            <Bot className="h-4 w-4" />
+          )}
         </AvatarFallback>
       </Avatar>
 
@@ -118,11 +169,37 @@ function MessageItem({
       >
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium">
-            {isUser ? "Customer" : "Maya AI"}
+            {isUser ? "Customer" : isHumanAgent ? "Human Agent" : "Maya AI"}
           </span>
           <span className="text-xs text-muted-foreground">
             {formatDistanceToNow(timestamp, { addSuffix: true })}
           </span>
+
+          {/* Retry button for AI messages - always visible on mobile */}
+          {isAssistant && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 opacity-100 md:opacity-0 md:group-hover:opacity-100 hover:bg-muted active:bg-muted/80 transition-all"
+                  disabled={isRetrying}
+                >
+                  {isRetrying ? (
+                    <div className="h-3 w-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-3 w-3" />
+                  )}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuItem onClick={handleRetry}>
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Retry response
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
 
         {/* Tool Calls - show before the message */}
@@ -148,17 +225,19 @@ function MessageItem({
         {/* Message Content */}
         <div
           className={cn(
-            "rounded-lg px-4 py-2 text-sm",
+            "rounded-lg px-4 py-2 text-sm group",
             isUser
               ? "bg-primary text-primary-foreground ml-auto max-w-[80%]"
-              : "bg-muted max-w-[80%]",
+              : isHumanAgent
+                ? "bg-green-100 text-green-900 max-w-[80%] border border-green-300"
+                : "bg-muted max-w-[80%]",
           )}
         >
           <p className="whitespace-pre-wrap">{content}</p>
         </div>
 
-        {/* AI Metadata */}
-        {!isUser && aiMetadata && (
+        {/* AI Metadata - only show for AI assistant, not human agent */}
+        {!isUser && !isHumanAgent && aiMetadata && (
           <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
             <span className="bg-muted px-2 py-0.5 rounded">
               {aiMetadata.model}
@@ -177,11 +256,15 @@ function MessageItem({
   );
 }
 
-export function ConversationView({ threadId }: ConversationViewProps) {
+export function ConversationView({ threadId, thread }: ConversationViewProps) {
   const messages = useQuery(api.messages.listByThread, {
     threadId,
     limit: 100,
   });
+
+  const agentStatus = thread?.agentStatus ?? "active";
+  const isPausedOrHandoff =
+    agentStatus === "paused" || agentStatus === "handoff";
 
   if (messages === undefined) {
     return (
@@ -257,6 +340,8 @@ export function ConversationView({ threadId }: ConversationViewProps) {
             {messages.map((message) => (
               <MessageItem
                 key={message._id}
+                messageId={message._id}
+                threadId={threadId}
                 content={message.content}
                 role={message.role}
                 timestamp={message.timestamp}
@@ -269,10 +354,26 @@ export function ConversationView({ threadId }: ConversationViewProps) {
         </ScrollArea>
       </div>
 
+      {isPausedOrHandoff && (
+        <MessageComposer
+          threadId={threadId}
+          agentStatus={agentStatus}
+          onMessageSent={() => {
+            // Messages will refresh automatically via Convex
+          }}
+        />
+      )}
+
       <div className="p-4 border-t border-border bg-muted/30">
         <p className="text-xs text-center text-muted-foreground">
-          Read-only monitoring mode • {messages.length} message
-          {messages.length !== 1 ? "s" : ""}
+          {agentStatus === "active" && `AI Active • Read-only monitoring mode`}
+          {agentStatus === "paused" && `AI Paused • Human agent responding`}
+          {agentStatus === "handoff" && `AI Handoff • Human agent responding`}
+          {agentStatus === "pending_human" &&
+            `Pending Human • Awaiting response`}
+          {!agentStatus && `Read-only monitoring mode`}
+          {" • "}
+          {messages.length} message{messages.length !== 1 ? "s" : ""}
         </p>
       </div>
     </div>

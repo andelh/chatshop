@@ -1,5 +1,6 @@
 "use client";
 
+import { Pause, UserCircle } from "lucide-react";
 import { memo } from "react";
 import { Badge } from "@/components/ui/badge";
 import type { Doc } from "@/convex/_generated/dataModel";
@@ -33,6 +34,35 @@ export const ThreadListItem = memo(function ThreadListItem({
 }: ThreadListItemProps) {
   const displayName = thread.customerName || "Unknown Customer";
   const hasUnread = thread.unreadCount > 0;
+  const agentStatus = thread.agentStatus ?? "active";
+
+  const getStatusBadge = () => {
+    switch (agentStatus) {
+      case "paused":
+        return (
+          <Badge variant="secondary" className="text-xs shrink-0">
+            <Pause className="h-3 w-3 mr-1" />
+            Paused
+          </Badge>
+        );
+      case "handoff":
+        return (
+          <Badge variant="destructive" className="text-xs shrink-0">
+            <UserCircle className="h-3 w-3 mr-1" />
+            Handoff
+          </Badge>
+        );
+      case "pending_human":
+        return (
+          <Badge variant="outline" className="text-xs shrink-0">
+            <UserCircle className="h-3 w-3 mr-1" />
+            Pending
+          </Badge>
+        );
+      default:
+        return null;
+    }
+  };
 
   return (
     <button
@@ -42,6 +72,8 @@ export const ThreadListItem = memo(function ThreadListItem({
         "w-full text-left p-4 border-b border-border/50 transition-colors",
         "hover:bg-accent/50 focus:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         isSelected && "bg-accent border-l-4 border-l-primary border-l-solid",
+        agentStatus === "paused" && "bg-yellow-50/50",
+        agentStatus === "handoff" && "bg-red-50/50",
       )}
       aria-selected={isSelected}
       role="option"
@@ -59,9 +91,12 @@ export const ThreadListItem = memo(function ThreadListItem({
             >
               {displayName}
             </h3>
-            <span className="text-xs text-muted-foreground whitespace-nowrap">
-              {formatRelativeTime(thread.lastMessageAt)}
-            </span>
+            <div className="flex items-center gap-1">
+              {getStatusBadge()}
+              <span className="text-xs text-muted-foreground whitespace-nowrap">
+                {formatRelativeTime(thread.lastMessageAt)}
+              </span>
+            </div>
           </div>
 
           <p
