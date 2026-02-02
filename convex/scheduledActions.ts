@@ -1,15 +1,29 @@
-import { openai } from "@ai-sdk/openai";
+import { type GoogleGenerativeAIProviderOptions, google } from "@ai-sdk/google";
 import { generateText, stepCountIs, tool } from "ai";
 import { v } from "convex/values";
 import { z } from "zod";
+import type { ModelProvider } from "../lib/models/config";
 import { api } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
-import { Id } from "./_generated/dataModel";
 import { internalAction } from "./_generated/server";
 import { calculateCost } from "./lib/cost";
 import { sendMetaMessage, sendTypingIndicator } from "./lib/messaging";
+import { createModel, getProviderOptions } from "./lib/model_provider";
 
-const ISUPPLY_SYSTEM_PROMPT = `You are Maya, part of the iSupply customer support team for iSupplyTT. You have been here about a year and genuinely like helping customers. You handle DMs and messages.
+// Type for generateText result based on the properties we use
+interface GenerateTextResponse {
+  text: string;
+  steps: any[];
+  totalUsage?: {
+    totalTokens?: number;
+    reasoningTokens?: number;
+    inputTokens?: number;
+    outputTokens?: number;
+  };
+  reasoning?: unknown;
+}
+
+export const ISUPPLY_SYSTEM_PROMPT = `You are Maya, part of the iSupply customer support team for iSupply. You have been here about a year and genuinely like helping customers. You handle DMs and messages.
 
 ## Core Job
 
@@ -74,6 +88,82 @@ const ISUPPLY_SYSTEM_PROMPT = `You are Maya, part of the iSupply customer suppor
 - Small talk: Quick response, then redirect to helping
 - Asked if you're a bot: Deflect naturally ("just here to help! what can I find for you?")
 - Spam/inappropriate: Don't respond
+
+## Trade-In Program
+
+When customers ask about trading in their device:
+- You can guide them through the process
+- Direct them to: https://isupplytt.com/trade
+- Explain: "you can trade your old iPhone for a new one or get cash. just answer a few questions on the site, we make an offer, and you can use it toward a newer phone or take the cash"
+- Keep it simple - don't overwhelm with details unless they ask
+
+## Making Recommendations
+
+When someone asks "which one should I get" or wants to compare products:
+- Focus on understanding their needs, not listing specs
+- Ask clarifying questions before recommending
+- Examples:
+  - "what do you mainly use your phone for?"
+  - "are you looking for something compact or prefer a bigger screen?"
+  - "what's your budget looking like?"
+- Frame recommendations around their use case, not technical features
+- "if you're into photography the pro is worth it, but if you just need solid everyday use the regular 16 is great"
+
+## First Contact Protocol
+
+If this is the first time interacting with this person (or it's been a while):
+- MUST start with: "hey! my name is maya, i'll be assisting you today"
+- Then answer their question
+- Keep the greeting brief and natural
+- Example: "hey! my name is maya, i'll be assisting you today. yep, we have the iphone 16 in stock"
+
+## Guiding to Website (UPDATED)
+
+**Only mention the website if:**
+- They explicitly ask "how do I order?" or "can I buy online?"
+- They've asked multiple detailed questions and seem ready to purchase
+- Keep it brief: "you can order on isupplytt.com or come by the store"
+
+**Don't:**
+- Give step-by-step instructions unless they ask for help navigating the site
+- Assume they want to order online
+- Tell them to search for specific products or walk them through checkout
+- Send them to the website unprompted
+
+**Examples:**
+
+Good (they're ready):
+Customer: "ok i want it, how do i get it?"
+Maya: "you can order on isupplytt.com or pick it up at the store - 28 hunter street. which works better for you?"
+
+Bad (too instructive):
+Customer: "ok cool"
+Maya: "just go to isupplytt.com, search 'iphone 15 128gb blue' and pick the new sealed option..."
+
+Good (they asked):
+Customer: "can i order online?"
+Maya: "yeah, it's on isupplytt.com. want me to send you the direct link?"
+
+Good (minimal):
+Customer: "how much is it?"
+Maya: "$4,999. we have it at the store or you can order online"
+
+## Examples
+
+**Trade-in question:**
+Customer: "can i trade in my old iphone?"
+Maya: "hey! my name is maya, i'll be assisting you today. yeah you can trade it in for a new phone or cash. check out isupplytt.com/trade - you answer some questions about your device and we'll make you an offer"
+
+**Recommendation request:**
+Customer: "should i get the iphone 16 or 16 pro?"
+Maya: "hey! my name is maya, i'll be assisting you today. what do you mainly use your phone for? helps me point you in the right direction"
+
+Customer: "mostly social media, photos, watching videos"
+Maya: "the regular 16 would be perfect for that. pro has better cameras and some extra features, but for your use the regular 16 is solid and saves you some money"
+
+**After answering questions:**
+Customer: "ok cool, how much is it?"
+Maya: "$5,999. you can order it on isupplytt.com if you want, or swing by the store - we're at 28 hunter street"
 
 ## Store Info
 
@@ -167,6 +257,16 @@ You: "that's outside what I handle here, email wecare@isupply.com and they can h
 - Don't anticipate all possible follow-ups in one message
 - Let the conversation breathe
 
+**Message Splitting:**
+- When you have multiple distinct points or separate thoughts, split them into separate messages
+- Use ||SPLIT|| to indicate where a message break should occur
+- Examples of when to split:
+  - Greeting + main response: "hey!||SPLIT||yeah we have those in stock"
+  - Main info + follow-up question: "have it in black and blue||SPLIT||which color were you thinking?"
+  - Multiple pieces of info: "it's $299||SPLIT||also comes with a free case"
+- Don't force splits - only use when it makes the conversation flow more naturally
+- Keep individual messages short (1-3 sentences max)
+
 ## Examples of Better Responses
 
 Customer: "Do you have them?" (after asking about AirPods)
@@ -197,6 +297,21 @@ nice! have airpods pro 3rd gen in two options - sealed in box for $2149 or witho
 """
 cool. i'd go with the sealed one - comes in full box and better for warranty. only have 4 left though. heading in soon?
 
+## When to Handoff to Human
+
+You should request a handoff to a human agent when:
+1. You're unsure about a policy or procedure ("I need to confirm that with my team")
+2. The customer is upset or frustrated ("Let me get a human to help you with this")
+3. The question requires human judgment (custom orders, special requests, complex warranty issues)
+4. You cannot find the information after checking tools
+5. The customer explicitly requests a human
+6. You're dealing with a complaint or escalated issue
+
+**To request handoff:** End your response with ||HANDOFF|| followed by a brief reason.
+Example: "I'm not sure about our trade-in policy for that specific device. ||HANDOFF|| Need to verify trade-in eligibility for non-Apple devices"
+
+**Important:** Only use ||HANDOFF|| when you genuinely cannot help. Most questions you can answer directly.
+
 ## Remember
 
 You're Maya. You work at iSupply. You're helpful and real. That's it.
@@ -206,13 +321,14 @@ Be genuinely helpful, not performatively helpful. Skip the "Great question!" - j
 You're not a chatbot becoming someone. You're already someone.`;
 
 export const DEFAULT_MODEL = "gpt-5.2";
+export const GOOGLE_DEFAULT_MODEL = "gemini-3-flash-preview";
 
-interface StorefrontConfig {
+export interface StorefrontConfig {
   endpoint: string;
   accessToken: string;
 }
 
-interface ChatMessage {
+export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
 }
@@ -277,7 +393,7 @@ async function shopifyFetch({
 }
 
 // Create Shopify tools for AI
-function createShopifyTools(storefront: StorefrontConfig) {
+export function createShopifyTools(storefront: StorefrontConfig) {
   return {
     getProductAvailability: tool({
       description: "Check Shopify product availability by name or query string",
@@ -723,35 +839,55 @@ function createShopifyTools(storefront: StorefrontConfig) {
   };
 }
 
+// AI Model Settings interface
+export interface ModelSettings {
+  aiProvider: ModelProvider;
+  aiModel: string;
+  providerOptions?: {
+    openaiReasoningEffort?: string;
+    googleThinkingLevel?: string;
+  };
+}
+
 // Run the AI shop assistant
 async function runShopAssistant({
   history,
   storefront,
-  model = DEFAULT_MODEL,
+  settings,
 }: {
   history: ChatMessage[];
   storefront: StorefrontConfig;
-  model?: string;
+  settings: ModelSettings;
 }) {
   const tools = createShopifyTools(storefront);
 
+  // Create the appropriate model instance based on settings
+  const model = createModel(settings.aiProvider, settings.aiModel);
+
+  // Get provider-specific options
+  const reasoningEffort = (settings.providerOptions?.openaiReasoningEffort ??
+    "medium") as "low" | "medium" | "high";
+  const thinkingLevel = (settings.providerOptions?.googleThinkingLevel ??
+    "high") as "low" | "medium" | "high";
+
+  const providerOptions = getProviderOptions(
+    settings.aiProvider,
+    reasoningEffort,
+    thinkingLevel,
+  );
+
   return await generateText({
-    model: openai(model),
+    model,
     system: ISUPPLY_SYSTEM_PROMPT,
     messages: history,
     tools,
-    providerOptions: {
-      openai: {
-        reasoningEffort: "medium",
-        reasoningSummary: "auto",
-      },
-    },
+    providerOptions,
     stopWhen: stepCountIs(10),
   });
 }
 
 // Extract tool calls from AI response steps
-function extractToolCalls(steps: any[] | undefined) {
+export function extractToolCalls(steps: any[] | undefined) {
   return (
     steps?.flatMap(
       (step: any) =>
@@ -773,7 +909,7 @@ function extractToolCalls(steps: any[] | undefined) {
 }
 
 // Log AI assistant results
-function logAssistantResult(result: any) {
+export function logAssistantResult(result: any) {
   console.log("\n🤖 AI Response Generated:");
   console.log(`Reasoning tokens: ${result.totalUsage?.reasoningTokens || 0}`);
   console.log(`Total tokens: ${result.totalUsage?.totalTokens || 0}`);
@@ -893,6 +1029,56 @@ export const processPendingMessages = internalAction({
 
       const accessToken = shop.metaPageAccessToken;
 
+      // Check if shop-wide agent pause is enabled
+      const shopSettings = shop.settings as any;
+      if (shopSettings.agentPaused) {
+        console.log(
+          `Shop agent is paused. Saving messages but skipping AI processing for thread ${args.threadId}`,
+        );
+        // Save the batched user message for conversation history
+        const now = Date.now();
+        await ctx.runMutation(api.messages.addMessage, {
+          threadId: args.threadId,
+          role: "user",
+          content: batchedContent,
+          timestamp: now,
+          platformMessageId: firstPlatformMessageId,
+        });
+        // Clear the scheduled job since we're not processing with AI
+        await ctx.runMutation(api.threads.clearScheduledJob, {
+          threadId: args.threadId,
+        });
+        await ctx.runMutation(api.pendingMessages.clearPendingMessages, {
+          threadId: args.threadId,
+        });
+        return;
+      }
+
+      // Check thread agent status
+      const agentStatus = thread.agentStatus ?? "active";
+      if (agentStatus === "paused" || agentStatus === "handoff") {
+        console.log(
+          `Thread ${args.threadId} is ${agentStatus}. Saving messages but skipping AI processing.`,
+        );
+        // Save the batched user message for conversation history
+        const now = Date.now();
+        await ctx.runMutation(api.messages.addMessage, {
+          threadId: args.threadId,
+          role: "user",
+          content: batchedContent,
+          timestamp: now,
+          platformMessageId: firstPlatformMessageId,
+        });
+        // Clear the scheduled job since we're not processing with AI
+        await ctx.runMutation(api.threads.clearScheduledJob, {
+          threadId: args.threadId,
+        });
+        await ctx.runMutation(api.pendingMessages.clearPendingMessages, {
+          threadId: args.threadId,
+        });
+        return;
+      }
+
       // 4. Show typing indicator during processing
       await sendTypingIndicator({
         recipientId: args.senderId,
@@ -919,66 +1105,129 @@ export const processPendingMessages = internalAction({
         },
       );
 
-      // 7. Run AI assistant with the batched message
+      // 7. Fetch global AI model settings
+      const dbSettings = await ctx.runQuery(api.settings.getSettings);
+
+      // 8. Cast settings to correct types
+      const settings: ModelSettings = {
+        aiProvider: dbSettings.aiProvider as ModelProvider,
+        aiModel: dbSettings.aiModel,
+        providerOptions: dbSettings.providerOptions,
+      };
+
+      // 9. Run AI assistant with the batched message
       const result = await runShopAssistant({
         history: history.map((message: Doc<"messages">) => ({
-          role: message.role,
+          // Convert human_agent role to assistant for AI processing
+          role: message.role === "human_agent" ? "assistant" : message.role,
           content: message.content,
         })),
         storefront,
+        settings,
       });
 
       logAssistantResult(result);
 
-      // 8. Extract metadata
+      // 9. Extract metadata
       const allToolCalls = extractToolCalls(result.steps);
-      const model = DEFAULT_MODEL;
+      const model = settings.aiModel;
       const usage = result.totalUsage;
 
-      // 9. Save assistant response to database
-      await ctx.runMutation(api.messages.addMessage, {
-        threadId: args.threadId,
-        role: "assistant",
-        content: result.text,
-        timestamp: Date.now(),
-        reasoning: result.reasoning
-          ? JSON.stringify(result.reasoning)
-          : undefined,
-        toolCalls: allToolCalls,
-        aiMetadata: {
-          model,
-          totalTokens: usage?.totalTokens ?? 0,
-          reasoningTokens: usage?.reasoningTokens ?? 0,
-          inputTokens: usage?.inputTokens ?? 0,
-          outputTokens: usage?.outputTokens ?? 0,
-          costUsd: calculateCost(
-            model,
-            usage?.inputTokens ?? 0,
-            usage?.outputTokens ?? 0,
-          ),
-        },
-      });
+      // Check for handoff request
+      const handoffMatch = result.text.match(/\|\|HANDOFF\|\|(.+)?$/);
+      const hasHandoff = !!handoffMatch;
+      const handoffReason = handoffMatch?.[1]?.trim() || "AI requested handoff";
 
-      // 10. Send response back to user
-      await sendMetaMessage({
-        recipientId: args.senderId,
-        text: result.text,
-        accessToken,
-      });
+      // Remove handoff delimiter from the response before processing
+      const textWithoutHandoff = result.text
+        .replace(/\|\|HANDOFF\|\|.+$/, "")
+        .trim();
 
-      // 11. Turn off typing indicator
+      // 10. Split response into separate messages if ||SPLIT|| delimiter is present
+      const messageParts = textWithoutHandoff
+        .split(/\|\|SPLIT\|\|/)
+        .map((part) => part.trim())
+        .filter((part) => part.length > 0);
+
+      // If no valid parts (shouldn't happen), use the full response
+      const partsToSend =
+        messageParts.length > 0 ? messageParts : [textWithoutHandoff];
+
+      // 11. Send each part as a separate message with delays
+      const baseTimestamp = Date.now();
+      for (let i = 0; i < partsToSend.length; i++) {
+        const part = partsToSend[i];
+        const isFirstMessage = i === 0;
+        const isLastMessage = i === partsToSend.length - 1;
+
+        // Add a small delay between messages (not before the first one)
+        if (!isFirstMessage) {
+          await new Promise((resolve) => setTimeout(resolve, 700)); // 700ms delay for natural pacing
+        }
+
+        // Send the message part
+        await sendMetaMessage({
+          recipientId: args.senderId,
+          text: part,
+          accessToken,
+        });
+
+        // Save each part as a separate message in the database
+        await ctx.runMutation(api.messages.addMessage, {
+          threadId: args.threadId,
+          role: "assistant",
+          content: part,
+          timestamp: baseTimestamp + i * 100, // Slight timestamp offset to maintain order
+          reasoning:
+            isFirstMessage && result.reasoning
+              ? JSON.stringify(result.reasoning)
+              : undefined,
+          toolCalls: isFirstMessage ? allToolCalls : undefined, // Only attach metadata to first part
+          aiMetadata: isFirstMessage
+            ? {
+                model,
+                totalTokens: usage?.totalTokens ?? 0,
+                reasoningTokens: usage?.reasoningTokens ?? 0,
+                inputTokens: usage?.inputTokens ?? 0,
+                outputTokens: usage?.outputTokens ?? 0,
+                costUsd: calculateCost(
+                  model,
+                  usage?.inputTokens ?? 0,
+                  usage?.outputTokens ?? 0,
+                ),
+              }
+            : undefined,
+        });
+
+        console.log(
+          `Sent message part ${i + 1}/${partsToSend.length}: "${part.substring(0, 50)}${part.length > 50 ? "..." : ""}"`,
+        );
+      }
+
+      // If handoff was requested, trigger handoff after sending response
+      if (hasHandoff) {
+        console.log(
+          `Handoff requested for thread ${args.threadId}: ${handoffReason}`,
+        );
+        await ctx.runMutation(api.threads.requestHandoff, {
+          threadId: args.threadId,
+          reason: handoffReason,
+        });
+      }
+
+      // 12. Turn off typing indicator
       await sendTypingIndicator({
         recipientId: args.senderId,
         accessToken,
         action: "typing_off",
       });
 
-      // 12. Clear pending messages queue
+      // 13. Clear pending messages queue
       await ctx.runMutation(api.pendingMessages.clearPendingMessages, {
         threadId: args.threadId,
       });
 
-      // 13. Clear scheduled job ID from thread
+      // 14. Clear scheduled job ID from thread
       await ctx.runMutation(api.threads.clearScheduledJob, {
         threadId: args.threadId,
       });
@@ -1004,6 +1253,279 @@ export const processPendingMessages = internalAction({
         );
       }
 
+      throw error;
+    }
+  },
+});
+
+/**
+ * Retry generating an AI response from a specific point in the conversation.
+ * This regenerates the AI response starting from the last user message before the given message.
+ */
+export const retryMessage = internalAction({
+  args: {
+    threadId: v.id("threads"),
+    messageId: v.id("messages"),
+  },
+  handler: async (ctx, args) => {
+    try {
+      // 1. Get the target message to find the retry point
+      const targetMessage = await ctx.runQuery(api.messages.get, {
+        messageId: args.messageId,
+      });
+      if (!targetMessage) {
+        throw new Error(`Message not found: ${args.messageId}`);
+      }
+
+      // 2. Fetch thread and shop info
+      const thread = await ctx.runQuery(api.threads.get, {
+        threadId: args.threadId,
+      });
+      if (!thread) {
+        throw new Error(`Thread not found: ${args.threadId}`);
+      }
+
+      const shop = await ctx.runQuery(api.shops.get, {
+        shopId: thread.shopId,
+      });
+      if (!shop) {
+        throw new Error(`Shop not found for thread: ${args.threadId}`);
+      }
+
+      const storefront: StorefrontConfig = {
+        endpoint: shop.shopifyDomain,
+        accessToken: shop.shopifyAccessToken,
+      };
+
+      const accessToken = shop.metaPageAccessToken;
+
+      // 3. Fetch conversation history up to (and including) the target message
+      const history: Doc<"messages">[] = await ctx.runQuery(
+        api.messages.listByThread,
+        {
+          threadId: args.threadId,
+          limit: 50,
+        },
+      );
+
+      // Filter to only include messages up to and including the target message
+      const cutoffIndex = history.findIndex((m) => m._id === args.messageId);
+      if (cutoffIndex === -1) {
+        throw new Error("Target message not found in thread history");
+      }
+
+      const historyUpToPoint = history.slice(0, cutoffIndex + 1);
+
+      // Find the last user message for context (we want to regenerate the AI response to this)
+      const lastUserMessageIndex = historyUpToPoint
+        .map((m, i) => ({ ...m, index: i }))
+        .reverse()
+        .find((m) => m.role === "user")?.index;
+
+      if (lastUserMessageIndex === undefined) {
+        throw new Error("No user message found to retry from");
+      }
+
+      // Get history up to and including the last user message
+      const retryHistory = historyUpToPoint.slice(0, lastUserMessageIndex + 1);
+
+      // 4. Fetch AI model settings
+      const dbSettings = await ctx.runQuery(api.settings.getSettings);
+
+      const settings: ModelSettings = {
+        aiProvider: dbSettings.aiProvider as ModelProvider,
+        aiModel: dbSettings.aiModel,
+        providerOptions: dbSettings.providerOptions,
+      };
+
+      // 5. Show typing indicator
+      await sendTypingIndicator({
+        recipientId: thread.platformUserId,
+        accessToken,
+        action: "typing_on",
+      });
+
+      // 6. Run AI assistant with the historical context
+      const tools = createShopifyTools(storefront);
+      let model = createModel(settings.aiProvider, settings.aiModel);
+
+      const reasoningEffort = (settings.providerOptions
+        ?.openaiReasoningEffort ?? "medium") as "low" | "medium" | "high";
+      const thinkingLevel = (settings.providerOptions?.googleThinkingLevel ??
+        "high") as "low" | "medium" | "high";
+
+      const providerOptions = getProviderOptions(
+        settings.aiProvider,
+        reasoningEffort,
+        thinkingLevel,
+      );
+
+      let result: GenerateTextResponse;
+      try {
+        result = await generateText({
+          model,
+          system: ISUPPLY_SYSTEM_PROMPT,
+          messages: retryHistory.map((message: Doc<"messages">) => ({
+            role: message.role === "human_agent" ? "assistant" : message.role,
+            content: message.content,
+          })),
+          tools,
+          providerOptions,
+          stopWhen: stepCountIs(10),
+        });
+      } catch (error: any) {
+        // Check for AI_API call errors (model not found, invalid model, etc.)
+        if (
+          error?.name === "AI_APICallError" ||
+          error?.message?.includes("models/") ||
+          error?.message?.includes("gemini-2.5-pro-exp")
+        ) {
+          console.error(
+            `AI Model Error: The model "${settings.aiModel}" is not recognized by the ${settings.aiProvider} provider.`,
+            error,
+          );
+
+          // Try fallback to default Google model
+          if (settings.aiProvider === "google") {
+            console.log(
+              `Attempting fallback to default model: ${GOOGLE_DEFAULT_MODEL}`,
+            );
+            try {
+              model = createModel("google", GOOGLE_DEFAULT_MODEL);
+              result = await generateText({
+                model,
+                system: ISUPPLY_SYSTEM_PROMPT,
+                messages: retryHistory.map((message: Doc<"messages">) => ({
+                  role:
+                    message.role === "human_agent" ? "assistant" : message.role,
+                  content: message.content,
+                })),
+                tools,
+                providerOptions,
+                stopWhen: stepCountIs(10),
+              });
+              console.log(
+                `Successfully used fallback model: ${GOOGLE_DEFAULT_MODEL}`,
+              );
+            } catch (fallbackError) {
+              console.error("Fallback model also failed:", fallbackError);
+              throw new Error(
+                `AI model error: Unable to use the configured model "${settings.aiModel}" and the fallback model also failed. Please check your AI model settings.`,
+              );
+            }
+          } else {
+            throw new Error(
+              `AI model error: The model "${settings.aiModel}" is not recognized by ${settings.aiProvider}. Please check your AI settings and try a different model.`,
+            );
+          }
+        } else {
+          // Re-throw other errors
+          throw error;
+        }
+      }
+
+      logAssistantResult(result);
+
+      // 7. Extract metadata
+      const allToolCalls = extractToolCalls(result.steps);
+      const model_name = settings.aiModel;
+      const usage = result.totalUsage;
+
+      // 8. Split response into separate messages if ||SPLIT|| delimiter is present
+      const handoffMatch = result.text.match(/\|\|HANDOFF\|\|(.+)?$/);
+      const hasHandoff = !!handoffMatch;
+      const handoffReason = handoffMatch?.[1]?.trim() || "AI requested handoff";
+
+      const textWithoutHandoff = result.text
+        .replace(/\|\|HANDOFF\|\|.+$/, "")
+        .trim();
+
+      const messageParts = textWithoutHandoff
+        .split(/\|\|SPLIT\|\|/)
+        .map((part) => part.trim())
+        .filter((part) => part.length > 0);
+
+      const partsToSend =
+        messageParts.length > 0 ? messageParts : [textWithoutHandoff];
+
+      // 9. Send each part as a separate message with delays
+      const baseTimestamp = Date.now();
+      const newMessageIds: string[] = [];
+
+      for (let i = 0; i < partsToSend.length; i++) {
+        const part = partsToSend[i];
+        const isFirstMessage = i === 0;
+
+        if (!isFirstMessage) {
+          await new Promise((resolve) => setTimeout(resolve, 700));
+        }
+
+        // Send the message part
+        await sendMetaMessage({
+          recipientId: thread.platformUserId,
+          text: part,
+          accessToken,
+        });
+
+        // Save each part as a separate message
+        const messageId = await ctx.runMutation(api.messages.addMessage, {
+          threadId: args.threadId,
+          role: "assistant",
+          content: part,
+          timestamp: baseTimestamp + i * 100,
+          reasoning:
+            isFirstMessage && result.reasoning
+              ? JSON.stringify(result.reasoning)
+              : undefined,
+          toolCalls: isFirstMessage ? allToolCalls : undefined,
+          aiMetadata: isFirstMessage
+            ? {
+                model: model_name,
+                totalTokens: usage?.totalTokens ?? 0,
+                reasoningTokens: usage?.reasoningTokens ?? 0,
+                inputTokens: usage?.inputTokens ?? 0,
+                outputTokens: usage?.outputTokens ?? 0,
+                costUsd: calculateCost(
+                  model_name,
+                  usage?.inputTokens ?? 0,
+                  usage?.outputTokens ?? 0,
+                ),
+              }
+            : undefined,
+        });
+
+        newMessageIds.push(messageId);
+
+        console.log(
+          `Retried message part ${i + 1}/${partsToSend.length}: "${part.substring(0, 50)}${part.length > 50 ? "..." : ""}"`,
+        );
+      }
+
+      // 10. Handle handoff if requested
+      if (hasHandoff) {
+        console.log(
+          `Handoff requested during retry for thread ${args.threadId}: ${handoffReason}`,
+        );
+        await ctx.runMutation(api.threads.requestHandoff, {
+          threadId: args.threadId,
+          reason: handoffReason,
+        });
+      }
+
+      // 11. Turn off typing indicator
+      await sendTypingIndicator({
+        recipientId: thread.platformUserId,
+        accessToken,
+        action: "typing_off",
+      });
+
+      console.log(
+        `Successfully retried message generation, created ${newMessageIds.length} message(s)`,
+      );
+
+      return { success: true, messageIds: newMessageIds };
+    } catch (error) {
+      console.error("Error retrying message:", error);
       throw error;
     }
   },
