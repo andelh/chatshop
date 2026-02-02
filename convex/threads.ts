@@ -32,6 +32,7 @@ export const getOrCreate = mutation({
       platform: args.platform,
       platformUserId: args.platformUserId,
       status: "active",
+      agentStatus: "active",
       lastMessageAt: Date.now(),
       customerName: args.customerName,
       unreadCount: 0,
@@ -191,5 +192,128 @@ export const getNextSequenceNumber = mutation({
     });
 
     return nextCounter;
+  },
+});
+
+/**
+ * Pause the AI agent for a thread.
+ * Human agent takes over the conversation.
+ */
+export const pauseThread = mutation({
+  args: {
+    threadId: v.id("threads"),
+    reason: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const thread = await ctx.db.get(args.threadId);
+    if (!thread) {
+      throw new Error(`Thread not found: ${args.threadId}`);
+    }
+
+    await ctx.db.patch(args.threadId, {
+      agentStatus: "paused",
+      agentPausedAt: Date.now(),
+      agentPausedReason: args.reason,
+      hasHumanIntervention: true,
+    });
+
+    return { success: true };
+  },
+});
+
+/**
+ * Resume the AI agent for a thread.
+ * AI will start responding again.
+ */
+export const resumeThread = mutation({
+  args: {
+    threadId: v.id("threads"),
+  },
+  handler: async (ctx, args) => {
+    const thread = await ctx.db.get(args.threadId);
+    if (!thread) {
+      throw new Error(`Thread not found: ${args.threadId}`);
+    }
+
+    await ctx.db.patch(args.threadId, {
+      agentStatus: "active",
+      agentPausedAt: undefined,
+      agentPausedReason: undefined,
+    });
+
+    return { success: true };
+  },
+});
+
+/**
+ * Request handoff to human agent.
+ * Called when AI detects it cannot handle the query.
+ */
+export const requestHandoff = mutation({
+  args: {
+    threadId: v.id("threads"),
+    reason: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const thread = await ctx.db.get(args.threadId);
+    if (!thread) {
+      throw new Error(`Thread not found: ${args.threadId}`);
+    }
+
+    await ctx.db.patch(args.threadId, {
+      agentStatus: "handoff",
+      agentPausedAt: Date.now(),
+      agentPausedReason: args.reason,
+    });
+
+    return { success: true };
+  },
+});
+
+/**
+ * Mark thread as waiting for human response.
+ * Used when AI has responded but is waiting for human to take over.
+ */
+export const markPendingHuman = mutation({
+  args: {
+    threadId: v.id("threads"),
+  },
+  handler: async (ctx, args) => {
+    const thread = await ctx.db.get(args.threadId);
+    if (!thread) {
+      throw new Error(`Thread not found: ${args.threadId}`);
+    }
+
+    await ctx.db.patch(args.threadId, {
+      agentStatus: "pending_human",
+    });
+
+    return { success: true };
+  },
+});
+
+/**
+ * Update thread status (active, resolved, archived).
+ */
+export const updateStatus = mutation({
+  args: {
+    threadId: v.id("threads"),
+    status: v.union(
+      v.literal("active"),
+      v.literal("resolved"),
+      v.literal("archived"),
+    ),
+  },
+  handler: async (ctx, args) => {
+    const thread = await ctx.db.get(args.threadId);
+    if (!thread) {
+      throw new Error(`Thread not found: ${args.threadId}`);
+    }
+
+    await ctx.db.patch(args.threadId, {
+      status: args.status,
+    });
+
+    return { success: true };
   },
 });

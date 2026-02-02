@@ -1,6 +1,17 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { api, internal } from "./_generated/api";
+import { action, mutation, query } from "./_generated/server";
 import { costByThread, messagesByThread, tokensByThread } from "./aggregates";
+import { sendMetaMessage } from "./lib/messaging";
+
+export const get = query({
+  args: {
+    messageId: v.id("messages"),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.messageId);
+  },
+});
 
 export const listByThread = query({
   args: {
@@ -96,6 +107,91 @@ export const addMessage = mutation({
     }
 
     return messageId;
+  },
+});
+
+/**
+ * Send a message as a human agent.
+ * This sends the message to the customer via Meta API and saves it with human_agent role.
+ * Automatically pauses the AI for this thread.
+ */
+export const sendHumanAgentMessage = mutation({
+  args: {
+    threadId: v.id("threads"),
+    content: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const thread = await ctx.db.get(args.threadId);
+    if (!thread) {
+      throw new Error(`Thread not found: ${args.threadId}`);
+    }
+
+    const shop = await ctx.db.get(thread.shopId);
+    if (!shop) {
+      throw new Error(`Shop not found for thread: ${args.threadId}`);
+    }
+
+    const now = Date.now();
+
+    // Send message to customer via Meta API
+    const accessToken = shop.metaPageAccessToken;
+    await sendMetaMessage({
+      recipientId: thread.platformUserId,
+      text: args.content,
+      accessToken,
+    });
+
+    // Save message as human_agent role
+    const messageId = await ctx.db.insert("messages", {
+      threadId: args.threadId,
+      role: "human_agent",
+      content: args.content,
+      timestamp: now,
+    });
+
+    // Update thread with human intervention tracking and pause status
+    await ctx.db.patch(args.threadId, {
+      lastHumanMessageAt: now,
+      hasHumanIntervention: true,
+      agentStatus: "paused",
+      lastMessageAt: now,
+      unreadCount: 0, // Reset unread since human just responded
+    });
+
+    const newMessage = await ctx.db.get(messageId);
+    if (newMessage) {
+      await messagesByThread.insert(ctx, newMessage);
+    }
+
+    return { success: true, messageId };
+  },
+});
+
+/**
+ * Retry generating an AI response for a given message.
+ * This is a public action wrapper that calls the internal retry action.
+ */
+export const retryAIResponse = action({
+  args: {
+    threadId: v.id("threads"),
+    messageId: v.id("messages"),
+  },
+  returns: v.object({
+    success: v.boolean(),
+    messageIds: v.array(v.string()),
+  }),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ success: boolean; messageIds: string[] }> => {
+    // Call the internal action to regenerate the AI response
+    const result: { success: boolean; messageIds: string[] } =
+      await ctx.runAction(internal.scheduledActions.retryMessage, {
+        threadId: args.threadId,
+        messageId: args.messageId,
+      });
+
+    return result;
   },
 });
 
