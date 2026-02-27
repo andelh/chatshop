@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono, Public_Sans } from "next/font/google";
+import { Geist, Geist_Mono, TikTok_Sans } from "next/font/google";
 import "./globals.css";
 import { Agentation } from "agentation";
 import { Providers } from "@/components/providers";
 
-const publicSans = Public_Sans({ subsets: ["latin"], variable: "--font-sans" });
+const tikTokSans = TikTok_Sans({ subsets: ["latin"], variable: "--font-sans" });
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -27,7 +27,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={publicSans.variable}>
+    <html lang="en" className={tikTokSans.variable}>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >

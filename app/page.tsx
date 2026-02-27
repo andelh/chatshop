@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 export default function Home() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-white font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col gap-6 py-24 px-6 bg-white dark:bg-black items-center justify-center">
+      <main className="flex min-h-screen w-full max-w-3xl flex-col gap-3 lg:gap-6 py-24 px-3 lg:px-6 bg-white dark:bg-black items-center justify-center">
         <Image
           src="/home.svg"
           alt="Chatshop home illustration"
@@ -14,10 +14,10 @@ export default function Home() {
           height={264}
           priority
         />
-        <h3 className="text-balance text-5xl font-semibold text-[#333] max-w-2xl text-center tracking-tighter">
+        <h3 className="md:text-balance text-3xl lg:text-5xl font-semibold text-[#333] max-w-2xl text-center tracking-tighter">
           Your 24/7 DM sales rep, connected directly to Shopify.
         </h3>
-        <p className="text-black/60 font-medium text-lg max-w-xl mx-auto text-center text-balance">
+        <p className="tracking-tight text-black/60 font-medium text-lg max-w-xl mx-auto text-center text-balance">
           Give every shopper fast, accurate replies on products, stock, and
           order status.
         </p>
