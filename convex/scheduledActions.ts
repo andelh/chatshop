@@ -966,6 +966,7 @@ export const processPendingMessages = internalAction({
     senderId: v.string(),
     pageId: v.string(),
     platform: v.string(),
+    simulateOnly: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     try {
@@ -1079,12 +1080,14 @@ export const processPendingMessages = internalAction({
         return;
       }
 
-      // 4. Show typing indicator during processing
-      await sendTypingIndicator({
-        recipientId: args.senderId,
-        accessToken,
-        action: "typing_on",
-      });
+      if (!args.simulateOnly) {
+        // 4. Show typing indicator during processing
+        await sendTypingIndicator({
+          recipientId: args.senderId,
+          accessToken,
+          action: "typing_on",
+        });
+      }
 
       // 5. Save the batched user message to the database
       const now = Date.now();
@@ -1165,12 +1168,14 @@ export const processPendingMessages = internalAction({
           await new Promise((resolve) => setTimeout(resolve, 700)); // 700ms delay for natural pacing
         }
 
-        // Send the message part
-        await sendMetaMessage({
-          recipientId: args.senderId,
-          text: part,
-          accessToken,
-        });
+        if (!args.simulateOnly) {
+          // Send the message part
+          await sendMetaMessage({
+            recipientId: args.senderId,
+            text: part,
+            accessToken,
+          });
+        }
 
         // Save each part as a separate message in the database
         await ctx.runMutation(api.messages.addMessage, {
@@ -1215,12 +1220,14 @@ export const processPendingMessages = internalAction({
         });
       }
 
-      // 12. Turn off typing indicator
-      await sendTypingIndicator({
-        recipientId: args.senderId,
-        accessToken,
-        action: "typing_off",
-      });
+      if (!args.simulateOnly) {
+        // 12. Turn off typing indicator
+        await sendTypingIndicator({
+          recipientId: args.senderId,
+          accessToken,
+          action: "typing_off",
+        });
+      }
 
       // 13. Clear pending messages queue
       await ctx.runMutation(api.pendingMessages.clearPendingMessages, {

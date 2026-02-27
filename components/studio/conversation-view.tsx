@@ -263,8 +263,6 @@ export function ConversationView({ threadId, thread }: ConversationViewProps) {
   });
 
   const agentStatus = thread?.agentStatus ?? "active";
-  const isPausedOrHandoff =
-    agentStatus === "paused" || agentStatus === "handoff";
 
   if (messages === undefined) {
     return (
@@ -322,12 +320,21 @@ export function ConversationView({ threadId, thread }: ConversationViewProps) {
 
   if (messages.length === 0) {
     return (
-      <div className="flex-1 flex flex-col h-full items-center justify-center p-8 text-center">
-        <MessageSquare className="h-12 w-12 text-muted-foreground mb-4" />
-        <h3 className="text-lg font-medium">No messages yet</h3>
-        <p className="text-sm text-muted-foreground mt-2">
-          This conversation hasn&apos;t started yet.
-        </p>
+      <div className="flex-1 flex flex-col h-full">
+        <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+          <MessageSquare className="h-12 w-12 text-muted-foreground mb-4" />
+          <h3 className="text-lg font-medium">No messages yet</h3>
+          <p className="text-sm text-muted-foreground mt-2">
+            This conversation hasn&apos;t started yet.
+          </p>
+        </div>
+        <MessageComposer
+          threadId={threadId}
+          agentStatus={agentStatus}
+          onMessageSent={() => {
+            // Messages will refresh automatically via Convex
+          }}
+        />
       </div>
     );
   }
@@ -354,19 +361,18 @@ export function ConversationView({ threadId, thread }: ConversationViewProps) {
         </ScrollArea>
       </div>
 
-      {isPausedOrHandoff && (
-        <MessageComposer
-          threadId={threadId}
-          agentStatus={agentStatus}
-          onMessageSent={() => {
-            // Messages will refresh automatically via Convex
-          }}
-        />
-      )}
+      <MessageComposer
+        threadId={threadId}
+        agentStatus={agentStatus}
+        onMessageSent={() => {
+          // Messages will refresh automatically via Convex
+        }}
+      />
 
       <div className="p-4 border-t border-border bg-muted/30">
         <p className="text-xs text-center text-muted-foreground">
-          {agentStatus === "active" && `AI Active • Read-only monitoring mode`}
+          {agentStatus === "active" &&
+            `AI Active • Manual human replies are enabled`}
           {agentStatus === "paused" && `AI Paused • Human agent responding`}
           {agentStatus === "handoff" && `AI Handoff • Human agent responding`}
           {agentStatus === "pending_human" &&

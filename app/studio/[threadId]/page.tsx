@@ -174,7 +174,7 @@ function ThreadPageClient({ threadId }: { threadId: Id<"threads"> }) {
       </header>
 
       {/* Conversation */}
-      <ConversationView threadId={threadId} />
+      <ConversationView threadId={threadId} thread={thread} />
     </div>
   );
 }

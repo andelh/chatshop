@@ -15,6 +15,7 @@ export const scheduleMessageProcessing = action({
     senderId: v.string(),
     pageId: v.string(),
     platform: v.string(),
+    simulateOnly: v.optional(v.boolean()),
   },
   handler: async (ctx, args): Promise<string> => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -27,6 +28,7 @@ export const scheduleMessageProcessing = action({
         senderId: args.senderId,
         pageId: args.pageId,
         platform: args.platform,
+        simulateOnly: args.simulateOnly,
       },
     );
 

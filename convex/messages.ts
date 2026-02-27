@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
-import { action, mutation, query } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
+import { action, internalMutation, mutation, query } from "./_generated/server";
 import { costByThread, messagesByThread, tokensByThread } from "./aggregates";
 import { sendMetaMessage } from "./lib/messaging";
 
@@ -112,28 +113,36 @@ export const addMessage = mutation({
 
 /**
  * Send a message as a human agent.
- * This sends the message to the customer via Meta API and saves it with human_agent role.
- * Automatically pauses the AI for this thread.
+ * This action sends the message to the customer via Meta API, then persists
+ * the outbound message via an internal mutation.
  */
-export const sendHumanAgentMessage = mutation({
+export const sendHumanAgentMessage = action({
   args: {
     threadId: v.id("threads"),
     content: v.string(),
   },
-  handler: async (ctx, args) => {
-    const thread = await ctx.db.get(args.threadId);
+  returns: v.object({
+    success: v.boolean(),
+    messageId: v.id("messages"),
+  }),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ success: boolean; messageId: Id<"messages"> }> => {
+    const thread = await ctx.runQuery(api.threads.get, {
+      threadId: args.threadId,
+    });
     if (!thread) {
       throw new Error(`Thread not found: ${args.threadId}`);
     }
 
-    const shop = await ctx.db.get(thread.shopId);
+    const shop = await ctx.runQuery(api.shops.get, {
+      shopId: thread.shopId,
+    });
     if (!shop) {
       throw new Error(`Shop not found for thread: ${args.threadId}`);
     }
 
-    const now = Date.now();
-
-    // Send message to customer via Meta API
     const accessToken = shop.metaPageAccessToken;
     await sendMetaMessage({
       recipientId: thread.platformUserId,
@@ -141,7 +150,111 @@ export const sendHumanAgentMessage = mutation({
       accessToken,
     });
 
-    // Save message as human_agent role
+    const result = await ctx.runMutation(internal.messages.saveHumanAgentMessage, {
+      threadId: args.threadId,
+      content: args.content,
+    });
+    return result;
+  },
+});
+
+/**
+ * Simulate an inbound customer message from Studio.
+ * This uses the same batching + scheduled processing pipeline as webhooks.
+ */
+export const simulateCustomerMessage = action({
+  args: {
+    threadId: v.id("threads"),
+    content: v.string(),
+  },
+  returns: v.object({
+    success: v.boolean(),
+    jobId: v.string(),
+  }),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ success: boolean; jobId: string }> => {
+    const thread = await ctx.runQuery(api.threads.get, {
+      threadId: args.threadId,
+    });
+    if (!thread) {
+      throw new Error(`Thread not found: ${args.threadId}`);
+    }
+
+    const shop = await ctx.runQuery(api.shops.get, {
+      shopId: thread.shopId,
+    });
+    if (!shop) {
+      throw new Error(`Shop not found for thread: ${args.threadId}`);
+    }
+
+    const existingJobId = thread.scheduledJobId;
+    if (existingJobId) {
+      try {
+        await ctx.runAction(api.scheduler.cancelScheduledJob, {
+          jobId: existingJobId,
+        });
+      } catch (error) {
+        console.error("Error cancelling existing scheduled job:", error);
+      }
+    }
+
+    const sequenceNumber = await ctx.runMutation(api.threads.getNextSequenceNumber, {
+      threadId: args.threadId,
+    });
+
+    await ctx.runMutation(api.pendingMessages.addPendingMessage, {
+      threadId: args.threadId,
+      content: args.content,
+      timestamp: Date.now(),
+      sequenceNumber,
+    });
+
+    const pageId =
+      thread.platform === "instagram"
+        ? (shop.instagramAccountId ?? shop.metaPageId)
+        : shop.metaPageId;
+
+    const newJobId = await ctx.runAction(api.scheduler.scheduleMessageProcessing, {
+      threadId: args.threadId,
+      senderId: thread.platformUserId,
+      pageId,
+      platform: thread.platform,
+      simulateOnly: true,
+    });
+
+    await ctx.runMutation(api.threads.updateScheduledJob, {
+      threadId: args.threadId,
+      jobId: newJobId,
+    });
+
+    return { success: true, jobId: newJobId };
+  },
+});
+
+/**
+ * Internal mutation used by sendHumanAgentMessage action.
+ */
+export const saveHumanAgentMessage = internalMutation({
+  args: {
+    threadId: v.id("threads"),
+    content: v.string(),
+  },
+  returns: v.object({
+    success: v.boolean(),
+    messageId: v.id("messages"),
+  }),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ success: boolean; messageId: Id<"messages"> }> => {
+    const thread = await ctx.db.get(args.threadId);
+    if (!thread) {
+      throw new Error(`Thread not found: ${args.threadId}`);
+    }
+
+    const now = Date.now();
     const messageId = await ctx.db.insert("messages", {
       threadId: args.threadId,
       role: "human_agent",
@@ -149,13 +262,15 @@ export const sendHumanAgentMessage = mutation({
       timestamp: now,
     });
 
-    // Update thread with human intervention tracking and pause status
+    const totalMessages = (thread.totalMessages ?? 0) + 1;
+
     await ctx.db.patch(args.threadId, {
       lastHumanMessageAt: now,
       hasHumanIntervention: true,
       agentStatus: "paused",
       lastMessageAt: now,
-      unreadCount: 0, // Reset unread since human just responded
+      unreadCount: 0,
+      totalMessages,
     });
 
     const newMessage = await ctx.db.get(messageId);

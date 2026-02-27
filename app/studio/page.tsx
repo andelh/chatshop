@@ -45,7 +45,7 @@ export default function StudioPage() {
         <p className="text-muted-foreground max-w-md mb-8">
           There are no active conversations in your shop right now.
           Conversations will appear here when customers message your AI
-          assistant.
+          assistant or when you start a new chat from Studio.
         </p>
       </div>
     );
