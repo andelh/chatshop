@@ -42,7 +42,7 @@ export function LegalPage({
           }
         });
       },
-      { rootMargin: "-20% 0% -60% 0%" }
+      { rootMargin: "-20% 0% -60% 0%" },
     );
 
     sections.forEach((s) => {
@@ -54,8 +54,8 @@ export function LegalPage({
   }, [sections]);
 
   return (
-    <main className="min-h-[100dvh] bg-[#fafafa] sm:bg-white text-slate-900 selection:bg-sky-200 selection:text-slate-900">
-      <div className="mx-auto flex w-full max-w-[1400px] flex-col lg:flex-row px-6 pt-8 pb-32 sm:pt-12 sm:pb-24 lg:px-16 lg:py-24 gap-12 lg:gap-24">
+    <main className="min-h-dvh bg-[#fafafa] sm:bg-white text-slate-900 selection:bg-sky-200 selection:text-slate-900">
+      <div className="mx-auto flex w-full max-w-[1400px] flex-col lg:flex-row px-6 pt-8 pb-32 sm:pt-12 sm:pb-64 lg:px-16 lg:py-24 gap-12 lg:gap-24">
         {/* Left Sidebar (Desktop) */}
         <aside className="hidden lg:block w-[280px] xl:w-[320px] shrink-0">
           <div className="sticky top-12 lg:top-24 flex flex-col gap-10">
@@ -163,9 +163,7 @@ export function LegalPage({
             <h1 className="mb-8 text-4xl font-semibold tracking-tight text-slate-900 sm:text-5xl lg:text-5xl lg:leading-[1.1] text-balance">
               {title}
             </h1>
-            <p className="text-lg leading-relaxed text-slate-600">
-              {summary}
-            </p>
+            <p className="text-lg leading-relaxed text-slate-600">{summary}</p>
             <div className="mt-8 flex items-center gap-3">
               <span className="inline-flex items-center rounded-full bg-slate-100/80 px-4 py-1.5 text-xs font-semibold uppercase tracking-widest text-slate-600 border border-slate-200/50">
                 Last updated {lastUpdated}
@@ -204,23 +202,6 @@ export function LegalPage({
               );
             })}
           </div>
-
-          <footer className="mt-24 lg:hidden flex flex-col sm:flex-row items-start justify-between gap-8 rounded-[2rem] bg-slate-50 p-8 sm:p-10 border border-slate-200/60 shadow-sm">
-            <div>
-              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-500 mb-3">
-                Clerkit by Techxture Media Ltd
-              </p>
-              <p className="text-sm text-slate-600 max-w-sm leading-relaxed">
-                These conditions describe the current operating terms for Clerkit. They should be reviewed periodically.
-              </p>
-            </div>
-            <Link
-              href={alternateHref}
-              className="inline-flex h-[46px] sm:h-12 w-full sm:w-auto items-center justify-center rounded-full bg-white px-6 text-[12px] sm:text-[13px] font-bold uppercase tracking-wide text-slate-900 shadow-sm ring-1 ring-inset ring-slate-200 transition-all hover:bg-slate-50 hover:ring-slate-300 sm:mt-2"
-            >
-              {alternateLabel}
-            </Link>
-          </footer>
         </div>
       </div>
 

@@ -31,13 +31,33 @@ export const AI_PROVIDERS: ProviderConfig[] = [
     logo: "openai",
     models: [
       {
+        id: "gpt-5.4",
+        name: "GPT-5.4",
+        provider: "openai",
+        description:
+          "Frontier model with native computer use and 1M token context. Best for complex professional work. Pricing: $2.50/$15 per 1M tokens.",
+        pricing: { input: 2.5, output: 15.0 },
+        recommended: true,
+        maxTokens: 128000,
+        features: ["reasoning", "tools", "computer-use", "high-quality"],
+      },
+      {
+        id: "gpt-5.4-mini",
+        name: "GPT-5.4 Mini",
+        provider: "openai",
+        description:
+          "Efficient mini model for coding, computer use, and subagents. Pricing: $0.75/$4.50 per 1M tokens.",
+        pricing: { input: 0.75, output: 4.5 },
+        maxTokens: 128000,
+        features: ["reasoning", "coding", "cost-effective"],
+      },
+      {
         id: "gpt-5.2",
         name: "GPT-5.2",
         provider: "openai",
         description:
           "Latest frontier model for professional work and long-running agents. Best overall performance. Pricing: $1.75/$14 per 1M tokens.",
         pricing: { input: 1.75, output: 14.0 },
-        recommended: true,
         maxTokens: 128000,
         features: ["reasoning", "tools", "high-quality"],
       },

@@ -99,7 +99,7 @@ export default function PrivacyPage() {
       lastUpdated={lastUpdated}
       sections={sections}
       summary="This policy explains what information Clerkit collects, why we use it, how Techxture Media Ltd handles connected commerce and messaging data, and the choices available to account holders."
-      title="Privacy for Clerkit"
+      title="Privacy Policy"
     />
   );
 }
