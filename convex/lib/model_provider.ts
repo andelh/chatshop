@@ -51,6 +51,8 @@ export function isValidModel(
 ): boolean {
   const validModels: Record<ModelProvider, string[]> = {
     openai: [
+      "gpt-5.4-mini",
+      "gpt-5.4",
       "gpt-5.2",
       "gpt-5.1",
       "gpt-5",

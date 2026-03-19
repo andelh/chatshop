@@ -1,9 +1,9 @@
 "use client";
 
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useAction, useQuery } from "convex/react";
 import { formatDistanceToNow } from "date-fns";
 import { Bot, MessageSquare, RefreshCw, User } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Reasoning,
   ReasoningContent,
@@ -262,6 +262,15 @@ export function ConversationView({ threadId, thread }: ConversationViewProps) {
     limit: 100,
   });
 
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages?.length]);
+
   const agentStatus = thread?.agentStatus ?? "active";
 
   if (messages === undefined) {
@@ -342,7 +351,7 @@ export function ConversationView({ threadId, thread }: ConversationViewProps) {
   return (
     <div className="flex-1 flex flex-col h-full">
       <div className="flex-1 overflow-hidden">
-        <ScrollArea className="h-full">
+        <ScrollArea className="h-full" viewportRef={scrollRef}>
           <div className="divide-y divide-border/50 pb-6">
             {messages.map((message) => (
               <MessageItem
