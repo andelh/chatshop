@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { StudioShellV2 } from "@/components/studio-v2/shell";
 
 export default function StudioV2Layout({
@@ -5,5 +6,9 @@ export default function StudioV2Layout({
 }: {
   children: React.ReactNode;
 }) {
-  return <StudioShellV2>{children}</StudioShellV2>;
+  return (
+    <Suspense>
+      <StudioShellV2>{children}</StudioShellV2>
+    </Suspense>
+  );
 }

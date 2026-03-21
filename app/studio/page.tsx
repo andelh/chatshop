@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import { useQuery } from "convex/react";
 import { ArrowRight, MessageSquare } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -8,6 +9,14 @@ import { Button } from "@/components/ui/button";
 import { api } from "@/convex/_generated/api";
 
 export default function StudioPage() {
+  return (
+    <Suspense>
+      <StudioPageContent />
+    </Suspense>
+  );
+}
+
+function StudioPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const shopIdParam = searchParams.get("shop");

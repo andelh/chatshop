@@ -2,12 +2,7 @@
 
 import { useMutation, useQuery } from "convex/react";
 import { ArrowLeft, Pause, Play, UserCircle } from "lucide-react";
-import {
-  notFound,
-  useParams,
-  useRouter,
-  useSearchParams,
-} from "next/navigation";
+import { notFound, useParams, useRouter } from "next/navigation";
 import { ConversationView } from "@/components/studio/conversation-view";
 import { PlatformIcon } from "@/components/studio/platform-icon";
 import { Badge } from "@/components/ui/badge";
@@ -24,7 +19,6 @@ import type { Id } from "@/convex/_generated/dataModel";
 export default function ThreadPage() {
   const params = useParams();
   const router = useRouter();
-  const searchParams = useSearchParams();
   const threadId = params?.threadId as string | undefined;
 
   const handleBack = () => {

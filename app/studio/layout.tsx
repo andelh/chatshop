@@ -1,20 +1,16 @@
 "use client";
 
+import { Suspense } from "react";
 import { useQuery } from "convex/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
 import { StudioShell } from "@/components/studio/studio-shell";
 import { api } from "@/convex/_generated/api";
 
-export default function StudioLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+function ShopRedirector() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const shopIdParam = searchParams.get("shop");
-
   const userShops = useQuery(api.shopMembers.listUserShops);
 
   useEffect(() => {
@@ -25,5 +21,20 @@ export default function StudioLayout({
     }
   }, [userShops, shopIdParam, router]);
 
-  return <StudioShell>{children}</StudioShell>;
+  return null;
+}
+
+export default function StudioLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <StudioShell>
+      <Suspense>
+        <ShopRedirector />
+      </Suspense>
+      {children}
+    </StudioShell>
+  );
 }

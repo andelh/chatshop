@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { AuthScreen } from "@/components/auth/auth-screen";
 import { isAuthenticated } from "@/lib/auth-server";
@@ -7,5 +8,9 @@ export default async function AuthPage() {
     redirect("/studio");
   }
 
-  return <AuthScreen />;
+  return (
+    <Suspense>
+      <AuthScreen />
+    </Suspense>
+  );
 }
