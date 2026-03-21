@@ -30,11 +30,13 @@ export default function StudioLayout({
   children: React.ReactNode;
 }) {
   return (
-    <StudioShell>
-      <Suspense>
-        <ShopRedirector />
-      </Suspense>
-      {children}
-    </StudioShell>
+    <Suspense>
+      <StudioShell>
+        <Suspense>
+          <ShopRedirector />
+        </Suspense>
+        {children}
+      </StudioShell>
+    </Suspense>
   );
 }
