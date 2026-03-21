@@ -1,30 +1,52 @@
 "use client";
 
+import { useQuery } from "convex/react";
 import { LogOut, Menu, Settings } from "lucide-react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useState, useTransition } from "react";
 import { ModelSelectorToolbar } from "@/components/studio/model-selector-toolbar";
 import { ThreadSidebar } from "@/components/studio/thread-sidebar";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { authClient } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
 
-const DEMO_SHOP_ID = "j971661b007fktwgrkh3zxd3p9804eej" as Id<"shops">;
-
 export function StudioShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const params = useParams();
+  const searchParams = useSearchParams();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSigningOut, startTransition] = useTransition();
 
   const selectedThreadId = params?.threadId as Id<"threads"> | undefined;
+  const shopIdParam = searchParams.get("shop");
+
+  const userShops = useQuery(api.shopMembers.listUserShops);
+  const currentShop =
+    userShops?.find((s) => s._id === shopIdParam) ?? userShops?.[0];
+  const currentShopId = currentShop?._id;
 
   const handleSelectThread = (threadId: Id<"threads">) => {
-    router.push(`/studio/${threadId}`);
+    const url = new URL(window.location.href);
+    url.pathname = `/studio/${threadId}`;
+    router.push(url.pathname + "?" + url.searchParams.toString());
     setIsMobileMenuOpen(false);
+  };
+
+  const handleShopChange = (newShopId: string) => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("shop", newShopId);
+    router.push(url.pathname + "?" + url.searchParams.toString());
   };
 
   const handleSignOut = () => {
@@ -35,11 +57,39 @@ export function StudioShell({ children }: { children: React.ReactNode }) {
     });
   };
 
+  if (userShops === undefined) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-background">
+        <div className="text-center">
+          <div className="animate-pulse">
+            <Menu className="h-8 w-8 text-muted-foreground mx-auto mb-4" />
+          </div>
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (userShops.length === 0) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-background">
+        <div className="text-center max-w-md p-8">
+          <h1 className="text-2xl font-semibold mb-4">No Shop Access</h1>
+          <p className="text-muted-foreground mb-6">
+            You don&apos;t have access to any shops yet. Please contact your
+            shop administrator to get invited.
+          </p>
+          <Button onClick={handleSignOut}>Sign Out</Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-screen w-full overflow-hidden bg-background">
       <aside className="hidden lg:block w-[320px] shrink-0 border-r border-border">
         <ThreadSidebar
-          shopId={DEMO_SHOP_ID}
+          shopId={currentShopId!}
           selectedThreadId={selectedThreadId}
           onSelectThread={handleSelectThread}
         />
@@ -58,7 +108,7 @@ export function StudioShell({ children }: { children: React.ReactNode }) {
         </SheetTrigger>
         <SheetContent side="left" className="w-[320px] p-0">
           <ThreadSidebar
-            shopId={DEMO_SHOP_ID}
+            shopId={currentShopId!}
             selectedThreadId={selectedThreadId}
             onSelectThread={handleSelectThread}
           />
@@ -68,6 +118,29 @@ export function StudioShell({ children }: { children: React.ReactNode }) {
       <main className={cn("flex-1 flex flex-col min-w-0 overflow-hidden")}>
         <header className="h-14 border-b border-border bg-card flex items-center justify-between px-4 shrink-0">
           <div className="flex items-center gap-4">
+            {userShops.length > 1 && (
+              <Select value={currentShopId} onValueChange={handleShopChange}>
+                <SelectTrigger className="w-[200px]">
+                  <SelectValue placeholder="Select shop" />
+                </SelectTrigger>
+                <SelectContent>
+                  {userShops.map((shop) => (
+                    <SelectItem
+                      key={shop._id}
+                      value={shop._id}
+                      className="cursor-pointer"
+                    >
+                      {shop.shopifyDomain}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            {userShops.length === 1 && (
+              <span className="text-sm font-medium">
+                {currentShop?.shopifyDomain}
+              </span>
+            )}
             <span className="text-sm font-medium text-muted-foreground hidden sm:inline">
               Studio
             </span>

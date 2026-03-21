@@ -27,7 +27,7 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const token = await getToken();
+  const token = await getToken().catch(() => null);
 
   return (
     <html lang="en" className={tikTokSans.variable}>

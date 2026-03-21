@@ -11,6 +11,7 @@
 import type * as aggregates from "../aggregates.js";
 import type * as auth from "../auth.js";
 import type * as http from "../http.js";
+import type * as lib_auth from "../lib/auth.js";
 import type * as lib_cost from "../lib/cost.js";
 import type * as lib_messaging from "../lib/messaging.js";
 import type * as lib_model_provider from "../lib/model_provider.js";
@@ -19,8 +20,10 @@ import type * as pendingMessages from "../pendingMessages.js";
 import type * as scheduledActions from "../scheduledActions.js";
 import type * as scheduler from "../scheduler.js";
 import type * as settings from "../settings.js";
+import type * as shopMembers from "../shopMembers.js";
 import type * as shops from "../shops.js";
 import type * as threads from "../threads.js";
+import type * as webhooks from "../webhooks.js";
 
 import type {
   ApiFromModules,
@@ -32,6 +35,7 @@ declare const fullApi: ApiFromModules<{
   aggregates: typeof aggregates;
   auth: typeof auth;
   http: typeof http;
+  "lib/auth": typeof lib_auth;
   "lib/cost": typeof lib_cost;
   "lib/messaging": typeof lib_messaging;
   "lib/model_provider": typeof lib_model_provider;
@@ -40,8 +44,10 @@ declare const fullApi: ApiFromModules<{
   scheduledActions: typeof scheduledActions;
   scheduler: typeof scheduler;
   settings: typeof settings;
+  shopMembers: typeof shopMembers;
   shops: typeof shops;
   threads: typeof threads;
+  webhooks: typeof webhooks;
 }>;
 
 /**

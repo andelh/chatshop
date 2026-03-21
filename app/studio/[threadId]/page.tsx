@@ -2,8 +2,12 @@
 
 import { useMutation, useQuery } from "convex/react";
 import { ArrowLeft, Pause, Play, UserCircle } from "lucide-react";
-import Link from "next/link";
-import { notFound, useParams } from "next/navigation";
+import {
+  notFound,
+  useParams,
+  useRouter,
+  useSearchParams,
+} from "next/navigation";
 import { ConversationView } from "@/components/studio/conversation-view";
 import { PlatformIcon } from "@/components/studio/platform-icon";
 import { Badge } from "@/components/ui/badge";
@@ -19,17 +23,36 @@ import type { Id } from "@/convex/_generated/dataModel";
 
 export default function ThreadPage() {
   const params = useParams();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const threadId = params?.threadId as string | undefined;
+
+  const handleBack = () => {
+    const url = new URL(window.location.href);
+    url.pathname = "/studio";
+    router.push(`${url.pathname}?${url.searchParams.toString()}`);
+  };
 
   // Validate threadId format
   if (!threadId || typeof threadId !== "string") {
     notFound();
   }
 
-  return <ThreadPageClient threadId={threadId as Id<"threads">} />;
+  return (
+    <ThreadPageClient
+      threadId={threadId as Id<"threads">}
+      onBack={handleBack}
+    />
+  );
 }
 
-function ThreadPageClient({ threadId }: { threadId: Id<"threads"> }) {
+function ThreadPageClient({
+  threadId,
+  onBack,
+}: {
+  threadId: Id<"threads">;
+  onBack: () => void;
+}) {
   const thread = useQuery(api.threads.get, { threadId });
   const pauseThread = useMutation(api.threads.pauseThread);
   const resumeThread = useMutation(api.threads.resumeThread);
@@ -50,12 +73,10 @@ function ThreadPageClient({ threadId }: { threadId: Id<"threads"> }) {
           The conversation you&apos;re looking for doesn&apos;t exist or has
           been deleted.
         </p>
-        <Link href="/studio">
-          <Button variant="outline">
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to Studio
-          </Button>
-        </Link>
+        <Button variant="outline" onClick={onBack}>
+          <ArrowLeft className="mr-2 h-4 w-4" />
+          Back to Studio
+        </Button>
       </div>
     );
   }
@@ -115,11 +136,14 @@ function ThreadPageClient({ threadId }: { threadId: Id<"threads"> }) {
     <div className="flex-1 flex flex-col h-full">
       {/* Header */}
       <header className="flex items-center gap-4 px-4 py-3 border-b border-border bg-card">
-        <Link href="/studio" className="lg:hidden">
-          <Button variant="ghost" size="icon">
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-        </Link>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onBack}
+          className="lg:hidden"
+        >
+          <ArrowLeft className="h-4 w-4" />
+        </Button>
 
         <PlatformIcon platform={thread.platform} />
 

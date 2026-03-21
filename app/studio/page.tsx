@@ -2,29 +2,35 @@
 
 import { useQuery } from "convex/react";
 import { ArrowRight, MessageSquare } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
-
-const DEMO_SHOP_ID = "j971661b007fktwgrkh3zxd3p9804eej" as Id<"shops">;
 
 export default function StudioPage() {
   const router = useRouter();
-  const threads = useQuery(api.threads.listByShop, {
-    shopId: DEMO_SHOP_ID,
-    status: "active",
-  });
+  const searchParams = useSearchParams();
+  const shopIdParam = searchParams.get("shop");
 
-  // Redirect to the first thread if available
+  const userShops = useQuery(api.shopMembers.listUserShops);
+  const currentShop =
+    userShops?.find((s) => s._id === shopIdParam) ?? userShops?.[0];
+  const currentShopId = currentShop?._id;
+
+  const threads = useQuery(
+    api.threads.listByShop,
+    currentShopId ? { shopId: currentShopId, status: "active" } : "skip",
+  );
+
   useEffect(() => {
     if (threads && threads.length > 0) {
-      router.push(`/studio/${threads[0]._id}`);
+      const url = new URL(window.location.href);
+      url.pathname = `/studio/${threads[0]._id}`;
+      router.push(url.pathname + "?" + url.searchParams.toString());
     }
   }, [threads, router]);
 
-  if (threads === undefined) {
+  if (userShops === undefined || threads === undefined) {
     return (
       <div className="flex-1 flex items-center justify-center">
         <div className="text-center">
@@ -33,6 +39,19 @@ export default function StudioPage() {
           </div>
           <p className="text-muted-foreground">Loading conversations...</p>
         </div>
+      </div>
+    );
+  }
+
+  if (!currentShopId) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+        <MessageSquare className="h-16 w-16 text-muted-foreground mb-6" />
+        <h1 className="text-2xl font-semibold mb-2">No Shop Access</h1>
+        <p className="text-muted-foreground max-w-md">
+          You don&apos;t have access to any shops yet. Please contact your shop
+          administrator to get invited.
+        </p>
       </div>
     );
   }
@@ -60,7 +79,13 @@ export default function StudioPage() {
         your customers and the AI assistant.
       </p>
       {threads[0] && (
-        <Button onClick={() => router.push(`/studio/${threads[0]._id}`)}>
+        <Button
+          onClick={() => {
+            const url = new URL(window.location.href);
+            url.pathname = `/studio/${threads[0]._id}`;
+            router.push(url.pathname + "?" + url.searchParams.toString());
+          }}
+        >
           View Latest Conversation
           <ArrowRight className="ml-2 h-4 w-4" />
         </Button>

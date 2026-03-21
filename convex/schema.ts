@@ -36,10 +36,21 @@ export default defineSchema({
       agentPausedAt: v.optional(v.number()),
       agentPausedReason: v.optional(v.string()),
     }),
+    ownerId: v.string(), // better-auth userId
   })
     .index("by_shopify_domain", ["shopifyDomain"])
     .index("by_meta_page", ["metaPageId"])
     .index("by_instagram_account", ["instagramAccountId"]),
+
+  // Shop Members
+  shopMembers: defineTable({
+    userId: v.string(), // from better-auth
+    shopId: v.id("shops"),
+    role: v.union(v.literal("owner"), v.literal("member")),
+  })
+    .index("by_user", ["userId"])
+    .index("by_shop", ["shopId"])
+    .index("by_user_shop", ["userId", "shopId"]),
 
   // Conversation threads
   threads: defineTable({

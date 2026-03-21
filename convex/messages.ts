@@ -1,8 +1,9 @@
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { action, internalMutation, mutation, query } from "./_generated/server";
+import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { costByThread, messagesByThread, tokensByThread } from "./aggregates";
+import { requireShopAccess } from "./lib/auth";
 import { sendMetaMessage } from "./lib/messaging";
 
 export const get = query({
@@ -10,7 +11,16 @@ export const get = query({
     messageId: v.id("messages"),
   },
   handler: async (ctx, args) => {
-    return await ctx.db.get(args.messageId);
+    const message = await ctx.db.get(args.messageId);
+    if (!message) {
+      return null;
+    }
+    const thread = await ctx.db.get(message.threadId);
+    if (!thread) {
+      return null;
+    }
+    await requireShopAccess(ctx, thread.shopId);
+    return message;
   },
 });
 
@@ -20,6 +30,12 @@ export const listByThread = query({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    const thread = await ctx.db.get(args.threadId);
+    if (!thread) {
+      return [];
+    }
+    await requireShopAccess(ctx, thread.shopId);
+
     const limit = args.limit ?? 20;
     const messages = await ctx.db
       .query("messages")
@@ -66,6 +82,12 @@ export const addMessage = mutation({
     ),
   },
   handler: async (ctx, args) => {
+    const thread = await ctx.db.get(args.threadId);
+    if (!thread) {
+      throw new Error("Thread not found");
+    }
+    await requireShopAccess(ctx, thread.shopId);
+
     const messageId = await ctx.db.insert("messages", {
       threadId: args.threadId,
       role: args.role,
@@ -86,12 +108,10 @@ export const addMessage = mutation({
       ]);
     }
 
-    const thread = await ctx.db.get(args.threadId);
     if (thread) {
       const unreadCount =
         args.role === "assistant" ? 0 : (thread.unreadCount ?? 0) + 1;
 
-      // Update thread aggregates
       const totalMessages = (thread.totalMessages ?? 0) + 1;
       const totalTokens =
         (thread.totalTokens ?? 0) + (args.aiMetadata?.totalTokens ?? 0);
@@ -129,6 +149,11 @@ export const sendHumanAgentMessage = action({
     ctx,
     args,
   ): Promise<{ success: boolean; messageId: Id<"messages"> }> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Unauthenticated");
+    }
+
     const thread = await ctx.runQuery(api.threads.get, {
       threadId: args.threadId,
     });
@@ -150,10 +175,13 @@ export const sendHumanAgentMessage = action({
       accessToken,
     });
 
-    const result = await ctx.runMutation(internal.messages.saveHumanAgentMessage, {
-      threadId: args.threadId,
-      content: args.content,
-    });
+    const result = await ctx.runMutation(
+      internal.messages.saveHumanAgentMessage,
+      {
+        threadId: args.threadId,
+        content: args.content,
+      },
+    );
     return result;
   },
 });
@@ -171,10 +199,12 @@ export const simulateCustomerMessage = action({
     success: v.boolean(),
     jobId: v.string(),
   }),
-  handler: async (
-    ctx,
-    args,
-  ): Promise<{ success: boolean; jobId: string }> => {
+  handler: async (ctx, args): Promise<{ success: boolean; jobId: string }> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Unauthenticated");
+    }
+
     const thread = await ctx.runQuery(api.threads.get, {
       threadId: args.threadId,
     });
@@ -200,9 +230,12 @@ export const simulateCustomerMessage = action({
       }
     }
 
-    const sequenceNumber = await ctx.runMutation(api.threads.getNextSequenceNumber, {
-      threadId: args.threadId,
-    });
+    const sequenceNumber = await ctx.runMutation(
+      api.threads.getNextSequenceNumber,
+      {
+        threadId: args.threadId,
+      },
+    );
 
     await ctx.runMutation(api.pendingMessages.addPendingMessage, {
       threadId: args.threadId,
@@ -216,13 +249,16 @@ export const simulateCustomerMessage = action({
         ? (shop.instagramAccountId ?? shop.metaPageId)
         : shop.metaPageId;
 
-    const newJobId = await ctx.runAction(api.scheduler.scheduleMessageProcessing, {
-      threadId: args.threadId,
-      senderId: thread.platformUserId,
-      pageId,
-      platform: thread.platform,
-      simulateOnly: true,
-    });
+    const newJobId = await ctx.runAction(
+      api.scheduler.scheduleMessageProcessing,
+      {
+        threadId: args.threadId,
+        senderId: thread.platformUserId,
+        pageId,
+        platform: thread.platform,
+        simulateOnly: true,
+      },
+    );
 
     await ctx.runMutation(api.threads.updateScheduledJob, {
       threadId: args.threadId,
@@ -310,9 +346,108 @@ export const retryAIResponse = action({
   },
 });
 
+// ─── Internal variants for use by scheduled actions (no user auth required) ───
+
+export const internalGetById = internalQuery({
+  args: { messageId: v.id("messages") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.messageId);
+  },
+});
+
+export const internalListByThread = internalQuery({
+  args: {
+    threadId: v.id("threads"),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const limit = args.limit ?? 20;
+    const messages = await ctx.db
+      .query("messages")
+      .withIndex("by_thread", (q) => q.eq("threadId", args.threadId))
+      .order("desc")
+      .take(limit);
+    return messages.reverse();
+  },
+});
+
+export const internalAddMessage = internalMutation({
+  args: {
+    threadId: v.id("threads"),
+    role: v.union(v.literal("user"), v.literal("assistant")),
+    content: v.string(),
+    timestamp: v.number(),
+    platformMessageId: v.optional(v.string()),
+    toolCalls: v.optional(v.array(v.any())),
+    reasoning: v.optional(v.string()),
+    aiMetadata: v.optional(
+      v.object({
+        model: v.string(),
+        totalTokens: v.number(),
+        reasoningTokens: v.number(),
+        inputTokens: v.number(),
+        outputTokens: v.number(),
+        costUsd: v.number(),
+      }),
+    ),
+  },
+  handler: async (ctx, args) => {
+    const thread = await ctx.db.get(args.threadId);
+    if (!thread) {
+      throw new Error("Thread not found");
+    }
+
+    const messageId = await ctx.db.insert("messages", {
+      threadId: args.threadId,
+      role: args.role,
+      content: args.content,
+      timestamp: args.timestamp,
+      platformMessageId: args.platformMessageId,
+      toolCalls: args.toolCalls,
+      reasoning: args.reasoning,
+      aiMetadata: args.aiMetadata,
+    });
+
+    const newMessage = await ctx.db.get(messageId);
+    if (newMessage) {
+      await Promise.all([
+        messagesByThread.insert(ctx, newMessage),
+        tokensByThread.insert(ctx, newMessage),
+        costByThread.insert(ctx, newMessage),
+      ]);
+    }
+
+    const unreadCount =
+      args.role === "assistant" ? 0 : (thread.unreadCount ?? 0) + 1;
+    const totalMessages = (thread.totalMessages ?? 0) + 1;
+    const totalTokens =
+      (thread.totalTokens ?? 0) + (args.aiMetadata?.totalTokens ?? 0);
+    const totalCostUsd =
+      (thread.totalCostUsd ?? 0) + (args.aiMetadata?.costUsd ?? 0);
+
+    await ctx.db.patch(args.threadId, {
+      lastMessageAt: args.timestamp,
+      unreadCount,
+      totalMessages,
+      totalTokens,
+      totalCostUsd,
+    });
+
+    return messageId;
+  },
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export const backfillMessageAggregates = mutation({
   args: {},
   handler: async (ctx) => {
+    // Require authentication — this is a maintenance operation
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Unauthenticated");
+    }
+
     const messages = await ctx.db.query("messages").collect();
 
     for (const message of messages) {
