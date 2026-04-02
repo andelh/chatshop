@@ -13,7 +13,7 @@ interface SidenavProps {
 
 const navItems = [
   { id: "inbox", label: "Inbox", icon: Inbox, href: "/studio-v2" },
-  { id: "stores", label: "Stores", icon: Store, href: "/settings" },
+  { id: "stores", label: "Stores", icon: Store, href: "/shops" },
   { id: "automation", label: "Automation", icon: Zap, href: "#" },
   { id: "analytics", label: "Analytics", icon: BarChart2, href: "#" },
 ];

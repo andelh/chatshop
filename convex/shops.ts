@@ -113,6 +113,34 @@ export const resumeShopAgent = mutation({
 });
 
 /**
+ * Update shop-level settings (autoReplyEnabled, etc.)
+ * Requires shop access.
+ */
+export const updateShopSettings = mutation({
+  args: {
+    shopId: v.id("shops"),
+    autoReplyEnabled: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    await requireShopAccess(ctx, args.shopId);
+
+    const shop = await ctx.db.get(args.shopId);
+    if (!shop) throw new Error("Shop not found");
+
+    const patch: Record<string, unknown> = {};
+    if (args.autoReplyEnabled !== undefined) {
+      patch.autoReplyEnabled = args.autoReplyEnabled;
+    }
+
+    await ctx.db.patch(args.shopId, {
+      settings: { ...shop.settings, ...patch },
+    });
+
+    return { success: true };
+  },
+});
+
+/**
  * Get the current agent status for a shop.
  * Requires user to be a member of the shop.
  */

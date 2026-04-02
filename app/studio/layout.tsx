@@ -1,34 +1,18 @@
-"use client";
-
 import { Suspense } from "react";
-import { useQuery } from "convex/react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect } from "react";
+import { redirect } from "next/navigation";
+import { isAuthenticated } from "@/lib/auth-server";
 import { StudioShell } from "@/components/studio/studio-shell";
-import { api } from "@/convex/_generated/api";
+import { ShopRedirector } from "@/components/studio/shop-redirector";
 
-function ShopRedirector() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const shopIdParam = searchParams.get("shop");
-  const userShops = useQuery(api.shopMembers.listUserShops);
-
-  useEffect(() => {
-    if (userShops && userShops.length > 0 && !shopIdParam) {
-      const url = new URL(window.location.href);
-      url.searchParams.set("shop", userShops[0]._id);
-      router.replace(`${url.pathname}?${url.searchParams.toString()}`);
-    }
-  }, [userShops, shopIdParam, router]);
-
-  return null;
-}
-
-export default function StudioLayout({
+export default async function StudioLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  if (!(await isAuthenticated())) {
+    redirect("/auth");
+  }
+
   return (
     <Suspense>
       <StudioShell>
