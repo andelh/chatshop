@@ -1,31 +1,26 @@
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
-import { mutation, query } from "./_generated/server";
+import { internalQuery, mutation, query } from "./_generated/server";
+import { requireAuth, requireShopAccess } from "./lib/auth";
+
+/**
+ * Internal shop lookup for use by scheduled actions — no user auth required.
+ */
+export const internalGet = internalQuery({
+  args: { shopId: v.id("shops") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.shopId);
+  },
+});
 
 /**
  * Get a shop by its ID.
+ * Requires user to be a member of the shop.
  */
 export const get = query({
   args: { shopId: v.id("shops") },
-  handler: async (
-    ctx,
-    args,
-  ): Promise<{
-    _id: Id<"shops">;
-    _creationTime: number;
-    shopifyDomain: string;
-    shopifyAccessToken: string;
-    metaPageId: string;
-    metaPageAccessToken: string;
-    instagramAccountId?: string;
-    settings: {
-      autoReplyEnabled: boolean;
-      businessHours?: any;
-      agentPaused?: boolean;
-      agentPausedAt?: number;
-      agentPausedReason?: string;
-    };
-  } | null> => {
+  handler: async (ctx, args) => {
+    await requireShopAccess(ctx, args.shopId);
     return await ctx.db.get(args.shopId);
   },
 });
@@ -55,6 +50,7 @@ export const getByInstagramAccountId = query({
 /**
  * Pause the AI agent for all conversations in a shop.
  * This is a shop-wide pause that prevents AI from responding to any thread.
+ * Requires shop owner or member access.
  */
 export const pauseShopAgent = mutation({
   args: {
@@ -62,6 +58,8 @@ export const pauseShopAgent = mutation({
     reason: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await requireShopAccess(ctx, args.shopId);
+
     const shop = await ctx.db.get(args.shopId);
     if (!shop) {
       throw new Error(`Shop not found: ${args.shopId}`);
@@ -85,12 +83,15 @@ export const pauseShopAgent = mutation({
 /**
  * Resume the AI agent for all conversations in a shop.
  * This removes the shop-wide pause.
+ * Requires shop owner or member access.
  */
 export const resumeShopAgent = mutation({
   args: {
     shopId: v.id("shops"),
   },
   handler: async (ctx, args) => {
+    await requireShopAccess(ctx, args.shopId);
+
     const shop = await ctx.db.get(args.shopId);
     if (!shop) {
       throw new Error(`Shop not found: ${args.shopId}`);
@@ -112,13 +113,44 @@ export const resumeShopAgent = mutation({
 });
 
 /**
+ * Update shop-level settings (autoReplyEnabled, etc.)
+ * Requires shop access.
+ */
+export const updateShopSettings = mutation({
+  args: {
+    shopId: v.id("shops"),
+    autoReplyEnabled: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    await requireShopAccess(ctx, args.shopId);
+
+    const shop = await ctx.db.get(args.shopId);
+    if (!shop) throw new Error("Shop not found");
+
+    const patch: Record<string, unknown> = {};
+    if (args.autoReplyEnabled !== undefined) {
+      patch.autoReplyEnabled = args.autoReplyEnabled;
+    }
+
+    await ctx.db.patch(args.shopId, {
+      settings: { ...shop.settings, ...patch },
+    });
+
+    return { success: true };
+  },
+});
+
+/**
  * Get the current agent status for a shop.
+ * Requires user to be a member of the shop.
  */
 export const getShopAgentStatus = query({
   args: {
     shopId: v.id("shops"),
   },
   handler: async (ctx, args) => {
+    await requireShopAccess(ctx, args.shopId);
+
     const shop = await ctx.db.get(args.shopId);
     if (!shop) {
       return null;

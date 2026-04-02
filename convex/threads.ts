@@ -1,6 +1,7 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { costByThread, messagesByThread, tokensByThread } from "./aggregates";
+import { requireShopAccess } from "./lib/auth";
 
 export const getOrCreate = mutation({
   args: {
@@ -10,6 +11,8 @@ export const getOrCreate = mutation({
     customerName: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await requireShopAccess(ctx, args.shopId);
+
     const existing = await ctx.db
       .query("threads")
       .withIndex("by_shop_platform_user", (q) =>
@@ -47,6 +50,8 @@ export const listByShop = query({
     status: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await requireShopAccess(ctx, args.shopId);
+
     const limit = args.limit ?? 50;
     const status = args.status ?? "active";
 
@@ -69,6 +74,8 @@ export const listByShopWithStats = query({
     status: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await requireShopAccess(ctx, args.shopId);
+
     const limit = args.limit ?? 50;
     const status = args.status ?? "active";
 
@@ -119,7 +126,12 @@ export const get = query({
     threadId: v.id("threads"),
   },
   handler: async (ctx, args) => {
-    return await ctx.db.get(args.threadId);
+    const thread = await ctx.db.get(args.threadId);
+    if (!thread) {
+      return null;
+    }
+    await requireShopAccess(ctx, thread.shopId);
+    return thread;
   },
 });
 
@@ -130,6 +142,7 @@ export const getByShopPlatformUser = query({
     platformUserId: v.string(),
   },
   handler: async (ctx, args) => {
+    await requireShopAccess(ctx, args.shopId);
     return await ctx.db
       .query("threads")
       .withIndex("by_shop_platform_user", (q) =>
@@ -152,6 +165,12 @@ export const updateScheduledJob = mutation({
     jobId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const thread = await ctx.db.get(args.threadId);
+    if (!thread) {
+      throw new Error("Thread not found");
+    }
+    await requireShopAccess(ctx, thread.shopId);
+
     await ctx.db.patch(args.threadId, {
       scheduledJobId: args.jobId,
     });
@@ -167,6 +186,12 @@ export const clearScheduledJob = mutation({
     threadId: v.id("threads"),
   },
   handler: async (ctx, args) => {
+    const thread = await ctx.db.get(args.threadId);
+    if (!thread) {
+      throw new Error("Thread not found");
+    }
+    await requireShopAccess(ctx, thread.shopId);
+
     await ctx.db.patch(args.threadId, {
       scheduledJobId: undefined,
       pendingSequenceCounter: 0,
@@ -184,6 +209,11 @@ export const getNextSequenceNumber = mutation({
   },
   handler: async (ctx, args) => {
     const thread = await ctx.db.get(args.threadId);
+    if (!thread) {
+      throw new Error("Thread not found");
+    }
+    await requireShopAccess(ctx, thread.shopId);
+
     const currentCounter = thread?.pendingSequenceCounter ?? 0;
     const nextCounter = currentCounter + 1;
 
@@ -209,6 +239,7 @@ export const pauseThread = mutation({
     if (!thread) {
       throw new Error(`Thread not found: ${args.threadId}`);
     }
+    await requireShopAccess(ctx, thread.shopId);
 
     await ctx.db.patch(args.threadId, {
       agentStatus: "paused",
@@ -234,6 +265,7 @@ export const resumeThread = mutation({
     if (!thread) {
       throw new Error(`Thread not found: ${args.threadId}`);
     }
+    await requireShopAccess(ctx, thread.shopId);
 
     await ctx.db.patch(args.threadId, {
       agentStatus: "active",
@@ -259,6 +291,7 @@ export const requestHandoff = mutation({
     if (!thread) {
       throw new Error(`Thread not found: ${args.threadId}`);
     }
+    await requireShopAccess(ctx, thread.shopId);
 
     await ctx.db.patch(args.threadId, {
       agentStatus: "handoff",
@@ -283,6 +316,7 @@ export const markPendingHuman = mutation({
     if (!thread) {
       throw new Error(`Thread not found: ${args.threadId}`);
     }
+    await requireShopAccess(ctx, thread.shopId);
 
     await ctx.db.patch(args.threadId, {
       agentStatus: "pending_human",
@@ -291,6 +325,103 @@ export const markPendingHuman = mutation({
     return { success: true };
   },
 });
+
+// ─── Internal variants for use by scheduled actions / webhooks (no user auth required) ───
+
+export const internalGetOrCreate = internalMutation({
+  args: {
+    shopId: v.id("shops"),
+    platform: v.string(),
+    platformUserId: v.string(),
+    customerName: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("threads")
+      .withIndex("by_shop_platform_user", (q) =>
+        q
+          .eq("shopId", args.shopId)
+          .eq("platform", args.platform)
+          .eq("platformUserId", args.platformUserId),
+      )
+      .first();
+
+    if (existing) {
+      if (args.customerName && args.customerName !== existing.customerName) {
+        await ctx.db.patch(existing._id, { customerName: args.customerName });
+      }
+      return existing._id;
+    }
+
+    return await ctx.db.insert("threads", {
+      shopId: args.shopId,
+      platform: args.platform,
+      platformUserId: args.platformUserId,
+      status: "active",
+      agentStatus: "active",
+      lastMessageAt: Date.now(),
+      customerName: args.customerName,
+      unreadCount: 0,
+    });
+  },
+});
+
+export const internalGetNextSequenceNumber = internalMutation({
+  args: { threadId: v.id("threads") },
+  handler: async (ctx, args) => {
+    const thread = await ctx.db.get(args.threadId);
+    if (!thread) throw new Error("Thread not found");
+    const nextCounter = (thread.pendingSequenceCounter ?? 0) + 1;
+    await ctx.db.patch(args.threadId, { pendingSequenceCounter: nextCounter });
+    return nextCounter;
+  },
+});
+
+export const internalUpdateScheduledJob = internalMutation({
+  args: {
+    threadId: v.id("threads"),
+    jobId: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const thread = await ctx.db.get(args.threadId);
+    if (!thread) throw new Error("Thread not found");
+    await ctx.db.patch(args.threadId, { scheduledJobId: args.jobId });
+  },
+});
+
+export const internalGet = internalQuery({
+  args: { threadId: v.id("threads") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.threadId);
+  },
+});
+
+export const internalClearScheduledJob = internalMutation({
+  args: { threadId: v.id("threads") },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.threadId, {
+      scheduledJobId: undefined,
+      pendingSequenceCounter: 0,
+    });
+  },
+});
+
+export const internalRequestHandoff = internalMutation({
+  args: {
+    threadId: v.id("threads"),
+    reason: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.threadId, {
+      agentStatus: "handoff",
+      agentPausedAt: Date.now(),
+      agentPausedReason: args.reason,
+    });
+    return { success: true };
+  },
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * Update thread status (active, resolved, archived).
@@ -309,6 +440,7 @@ export const updateStatus = mutation({
     if (!thread) {
       throw new Error(`Thread not found: ${args.threadId}`);
     }
+    await requireShopAccess(ctx, thread.shopId);
 
     await ctx.db.patch(args.threadId, {
       status: args.status,
