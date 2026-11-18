@@ -471,3 +471,154 @@ describe("sendMetaMessage", () => {
     ).rejects.toThrow(/code 190/);
   });
 });
+
+describe("signed Meta webhook", () => {
+  const APP_SECRET = "test_app_secret";
+
+  async function postWebhook(
+    t: ReturnType<typeof setupConvex>,
+    payload: unknown,
+    opts: { badSignature?: boolean } = {},
+  ) {
+    const body = JSON.stringify(payload);
+    const key = await crypto.subtle.importKey(
+      "raw",
+      new TextEncoder().encode(opts.badSignature ? "wrong" : APP_SECRET),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"],
+    );
+    const mac = await crypto.subtle.sign(
+      "HMAC",
+      key,
+      new TextEncoder().encode(body),
+    );
+    const hex = Array.from(new Uint8Array(mac))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+    return await t.fetch("/webhooks/meta", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Hub-Signature-256": `sha256=${hex}`,
+      },
+      body,
+    });
+  }
+
+  function messengerEvent(event: Record<string, unknown>) {
+    return { object: "page", entry: [{ id: PAGE_ID, messaging: [event] }] };
+  }
+
+  beforeEach(() => {
+    vi.stubEnv("META_APP_SECRET", APP_SECRET);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("queues a customer DM and answers it", async () => {
+    const t = setupConvex();
+    await createShop(t);
+    const { sent } = stubMeta();
+    generateTextMock.mockResolvedValue(modelReply("Hi!"));
+
+    const response = await postWebhook(
+      t,
+      messengerEvent({
+        sender: { id: CUSTOMER_ID },
+        recipient: { id: PAGE_ID },
+        message: { mid: "m_in_1", text: "hello" },
+      }),
+    );
+    expect(response.status).toBe(200);
+
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(sent.map((m) => m.text)).toEqual(["Hi!"]);
+  });
+
+  it("rejects a bad signature without queueing", async () => {
+    const t = setupConvex();
+    await createShop(t);
+    const response = await postWebhook(
+      t,
+      messengerEvent({
+        sender: { id: CUSTOMER_ID },
+        message: { mid: "m_in_1", text: "hello" },
+      }),
+      { badSignature: true },
+    );
+    expect(response.status).toBe(401);
+    const pending = await t.run((ctx) =>
+      ctx.db.query("pending_messages").collect(),
+    );
+    expect(pending).toHaveLength(0);
+  });
+
+  it("routes our own reply's echo to 'ours' and a staff echo to a takeover", async () => {
+    const t = setupConvex();
+    await createShop(t);
+    stubMeta();
+    generateTextMock.mockResolvedValue(modelReply("Hi!"));
+    const threadId = threadIdOf(await receive(t, "hello", "m_in_1"));
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    // Echo of the AI reply (mid m_out_1), then a staff photo from the inbox.
+    for (const message of [
+      { mid: "m_out_1", text: "Hi!", is_echo: true, app_id: 123 },
+      {
+        mid: "m_staff_1",
+        is_echo: true,
+        attachments: [{ type: "image" }],
+      },
+    ]) {
+      await postWebhook(
+        t,
+        messengerEvent({
+          sender: { id: PAGE_ID },
+          recipient: { id: CUSTOMER_ID },
+          timestamp: Date.now(),
+          message,
+        }),
+      );
+    }
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    const { thread, messages } = await threadState(t, threadId);
+    expect(messages.map((m) => [m.role, m.content])).toEqual([
+      ["user", "hello"],
+      ["assistant", "Hi!"],
+      ["human_agent", "[attachment]"],
+    ]);
+    expect(thread?.agentStatus).toBe("paused");
+  });
+
+  it("treats an echo matching our recent unsent-mid reply as ours", async () => {
+    const t = setupConvex();
+    await createShop(t);
+    // Meta accepted the send but returned no message_id.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ recipient_id: CUSTOMER_ID })),
+    );
+    generateTextMock.mockResolvedValue(modelReply("Hi!"));
+    const threadId = threadIdOf(await receive(t, "hello", "m_in_1"));
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    const result = await t.mutation(internal.webhooks.recordPageEcho, {
+      platform: "messenger",
+      pageId: PAGE_ID,
+      customerId: CUSTOMER_ID,
+      platformMessageId: "m_out_unknown",
+      content: "Hi!",
+      timestamp: Date.now(),
+    });
+    expect(result).toBe("ours");
+    const { thread, messages } = await threadState(t, threadId);
+    expect(thread?.agentStatus).toBe("active");
+    expect(
+      messages.find((m) => m.role === "assistant")?.platformMessageId,
+    ).toBe("m_out_unknown");
+  });
+});

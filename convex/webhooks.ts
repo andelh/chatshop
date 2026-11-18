@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { httpAction, internalMutation } from "./_generated/server";
 import { verifyMetaSignature } from "./lib/metaSignature";
-import { ECHO_GRACE_MS } from "./lib/pipeline";
+import { ECHO_GRACE_MS, OWN_ECHO_MATCH_WINDOW_MS } from "./lib/pipeline";
 import {
   findShopForPage,
   getOrCreateThread,
@@ -210,11 +210,35 @@ export const recordPageEcho = internalMutation({
       platformUserId: args.customerId,
     });
 
+    const timestamp = args.timestamp ?? Date.now();
+
+    // Fallback for our own sends whose mid we failed to store (Meta returned
+    // no message_id, or the save failed): same text, sent by us, moments ago.
+    const recent = await ctx.db
+      .query("messages")
+      .withIndex("by_thread", (q) =>
+        q
+          .eq("threadId", thread._id)
+          .gte("timestamp", timestamp - OWN_ECHO_MATCH_WINDOW_MS),
+      )
+      .collect();
+    const ownSend = recent.find(
+      (m) =>
+        m.role !== "user" &&
+        m.content === args.content &&
+        m.platformMessageId === undefined,
+    );
+    if (ownSend) {
+      await ctx.db.patch(ownSend._id, {
+        platformMessageId: args.platformMessageId,
+      });
+      return "ours";
+    }
+
     console.log(
       `Recording page echo ${args.platformMessageId} as a staff reply ` +
         `(thread ${thread._id}, app_id ${args.appId ?? "none"})`,
     );
-    const timestamp = args.timestamp ?? Date.now();
     await insertThreadMessage(ctx, thread._id, {
       role: "human_agent",
       content: args.content,

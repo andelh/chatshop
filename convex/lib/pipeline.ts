@@ -19,6 +19,12 @@ export const BATCH_LOCK_STALE_MS = 10 * 60_000;
  */
 export const ECHO_GRACE_MS = 15_000;
 
+/**
+ * An echo with an unknown mid still counts as ours if we stored a message
+ * with the same text (and no mid) within this window before it.
+ */
+export const OWN_ECHO_MATCH_WINDOW_MS = 5 * 60_000;
+
 /** Meta's standard messaging window after the customer's last message. */
 export const STANDARD_MESSAGING_WINDOW_MS = 24 * 60 * 60_000;
 
