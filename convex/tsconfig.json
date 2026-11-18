@@ -10,6 +10,8 @@
     "moduleResolution": "Bundler",
     "jsx": "react-jsx",
     "skipLibCheck": true,
+    /* @convex-dev/auth/test ships .ts source that imports with .ts extensions. */
+    "allowImportingTsExtensions": true,
     "allowSyntheticDefaultImports": true,
 
     /* These compiler options are required by Convex */
