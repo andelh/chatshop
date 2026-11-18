@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { requireAuth, requireShopOwner } from "./lib/auth";
+import { toPublicShop } from "./lib/publicShop";
 
 export const listByUser = query({
   args: {},
@@ -29,7 +30,7 @@ export const listUserShops = query({
         const shop = await ctx.db.get(membership.shopId);
         if (!shop) return null;
         return {
-          ...shop,
+          ...toPublicShop(shop),
           role: membership.role,
           membershipId: membership._id,
         };

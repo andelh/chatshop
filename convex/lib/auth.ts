@@ -55,6 +55,22 @@ export async function requireShopOwner(
   return access;
 }
 
+/**
+ * Require the caller to own at least one shop. Used for global settings,
+ * which affect every shop.
+ */
+export async function requireAnyShopOwner(ctx: AuthContext): Promise<string> {
+  const userId = await requireAuth(ctx);
+  const memberships = await ctx.db
+    .query("shopMembers")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  if (!memberships.some((m) => m.role === "owner")) {
+    throw new ConvexError("Forbidden: Shop owner access required");
+  }
+  return userId;
+}
+
 export async function getOptionalShopAccess(
   ctx: AuthContext,
   shopId: Id<"shops">,

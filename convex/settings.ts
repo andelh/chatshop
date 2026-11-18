@@ -1,31 +1,50 @@
 import { v } from "convex/values";
 import type { ModelProvider } from "../lib/models/config";
-import { mutation, query } from "./_generated/server";
+import {
+  internalQuery,
+  mutation,
+  type QueryCtx,
+  query,
+} from "./_generated/server";
+import { requireAnyShopOwner, requireAuth } from "./lib/auth";
 
 /**
  * Get the global app settings
  * Returns default settings if none exist
  */
+async function readSettings(ctx: QueryCtx) {
+  const settings = await ctx.db.query("app_settings").first();
+
+  if (!settings) {
+    // Return default settings if none exist
+    return {
+      aiProvider: "google" as ModelProvider,
+      aiModel: "gemini-2.0-flash",
+      providerOptions: {
+        openaiReasoningEffort: "medium",
+        googleThinkingLevel: "high",
+      },
+      updatedAt: Date.now(),
+    };
+  }
+
+  return settings;
+}
+
 export const getSettings = query({
   args: {},
   handler: async (ctx) => {
-    const settings = await ctx.db.query("app_settings").first();
-
-    if (!settings) {
-      // Return default settings if none exist
-      return {
-        aiProvider: "google" as ModelProvider,
-        aiModel: "gemini-2.0-flash",
-        providerOptions: {
-          openaiReasoningEffort: "medium",
-          googleThinkingLevel: "high",
-        },
-        updatedAt: Date.now(),
-      };
-    }
-
-    return settings;
+    await requireAuth(ctx);
+    return await readSettings(ctx);
   },
+});
+
+/**
+ * Settings read for the message pipeline (scheduled actions have no user).
+ */
+export const internalGetSettings = internalQuery({
+  args: {},
+  handler: async (ctx) => readSettings(ctx),
 });
 
 /**
@@ -43,6 +62,9 @@ export const updateModelConfig = mutation({
     ),
   },
   handler: async (ctx, args) => {
+    // Settings are global (they apply to every shop), so only shop owners
+    // may change them.
+    await requireAnyShopOwner(ctx);
     const existing = await ctx.db.query("app_settings").first();
 
     if (existing) {

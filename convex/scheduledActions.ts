@@ -3,7 +3,7 @@ import { generateText, stepCountIs, tool } from "ai";
 import { v } from "convex/values";
 import { z } from "zod";
 import type { ModelProvider } from "../lib/models/config";
-import { api, internal } from "./_generated/api";
+import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { internalAction } from "./_generated/server";
 import { calculateCost } from "./lib/cost";
@@ -1201,7 +1201,7 @@ export const processPendingMessages = internalAction({
     try {
       // 1. Fetch all pending messages for this thread
       const pendingMessages: Doc<"pending_messages">[] = await ctx.runQuery(
-        api.pendingMessages.getPendingMessages,
+        internal.pendingMessages.getPendingMessages,
         { threadId: args.threadId },
       );
 
@@ -1278,7 +1278,7 @@ export const processPendingMessages = internalAction({
         await ctx.runMutation(internal.threads.internalClearScheduledJob, {
           threadId: args.threadId,
         });
-        await ctx.runMutation(api.pendingMessages.clearPendingMessages, {
+        await ctx.runMutation(internal.pendingMessages.clearPendingMessages, {
           threadId: args.threadId,
         });
         return;
@@ -1303,7 +1303,7 @@ export const processPendingMessages = internalAction({
         await ctx.runMutation(internal.threads.internalClearScheduledJob, {
           threadId: args.threadId,
         });
-        await ctx.runMutation(api.pendingMessages.clearPendingMessages, {
+        await ctx.runMutation(internal.pendingMessages.clearPendingMessages, {
           threadId: args.threadId,
         });
         return;
@@ -1338,7 +1338,7 @@ export const processPendingMessages = internalAction({
       );
 
       // 7. Fetch global AI model settings
-      const dbSettings = await ctx.runQuery(api.settings.getSettings);
+      const dbSettings = await ctx.runQuery(internal.settings.internalGetSettings);
 
       // 8. Cast settings to correct types
       const settings: ModelSettings = {
@@ -1459,7 +1459,7 @@ export const processPendingMessages = internalAction({
       }
 
       // 13. Clear pending messages queue
-      await ctx.runMutation(api.pendingMessages.clearPendingMessages, {
+      await ctx.runMutation(internal.pendingMessages.clearPendingMessages, {
         threadId: args.threadId,
       });
 
@@ -1476,7 +1476,7 @@ export const processPendingMessages = internalAction({
 
       // Clear the pending queue to prevent stuck state
       try {
-        await ctx.runMutation(api.pendingMessages.clearPendingMessages, {
+        await ctx.runMutation(internal.pendingMessages.clearPendingMessages, {
           threadId: args.threadId,
         });
         await ctx.runMutation(internal.threads.internalClearScheduledJob, {
@@ -1569,7 +1569,7 @@ export const retryMessage = internalAction({
       const retryHistory = historyUpToPoint.slice(0, lastUserMessageIndex + 1);
 
       // 4. Fetch AI model settings
-      const dbSettings = await ctx.runQuery(api.settings.getSettings);
+      const dbSettings = await ctx.runQuery(internal.settings.internalGetSettings);
 
       const settings: ModelSettings = {
         aiProvider: dbSettings.aiProvider as ModelProvider,
