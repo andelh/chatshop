@@ -11,6 +11,8 @@ import {
 import { costByThread, messagesByThread, tokensByThread } from "./aggregates";
 import { requireShopAccess } from "./lib/auth";
 import { sendMetaMessage } from "./lib/messaging";
+import { STANDARD_MESSAGING_WINDOW_MS } from "./lib/pipeline";
+import { insertThreadMessage } from "./lib/threadMessages";
 
 export const get = query({
   args: {
@@ -176,11 +178,22 @@ export const sendHumanAgentMessage = action({
       throw new Error(`Shop not found for thread: ${args.threadId}`);
     }
 
-    const accessToken = shop.metaPageAccessToken;
-    await sendMetaMessage({
+    // Outside Meta's 24h window, staff replies need the HUMAN_AGENT tag.
+    const lastCustomerMessageAt = await ctx.runQuery(
+      internal.messages.internalLastCustomerMessageAt,
+      { threadId: args.threadId },
+    );
+    const humanAgentTag =
+      lastCustomerMessageAt === null ||
+      Date.now() - lastCustomerMessageAt > STANDARD_MESSAGING_WINDOW_MS;
+
+    // Throws if Meta rejects the send, so failures reach Studio and nothing
+    // is recorded as sent.
+    const { messageId: platformMessageId } = await sendMetaMessage({
       recipientId: thread.platformUserId,
       text: args.content,
-      accessToken,
+      accessToken: shop.metaPageAccessToken,
+      humanAgentTag,
     });
 
     const result = await ctx.runMutation(
@@ -188,6 +201,7 @@ export const sendHumanAgentMessage = action({
       {
         threadId: args.threadId,
         content: args.content,
+        platformMessageId,
       },
     );
     return result;
@@ -220,58 +234,11 @@ export const simulateCustomerMessage = action({
       throw new Error(`Thread not found: ${args.threadId}`);
     }
 
-    const shop = await ctx.runQuery(api.shops.get, {
-      shopId: thread.shopId,
-    });
-    if (!shop) {
-      throw new Error(`Shop not found for thread: ${args.threadId}`);
-    }
-
-    const existingJobId = thread.scheduledJobId;
-    if (existingJobId) {
-      try {
-        await ctx.runAction(internal.scheduler.cancelScheduledJob, {
-          jobId: existingJobId,
-        });
-      } catch (error) {
-        console.error("Error cancelling existing scheduled job:", error);
-      }
-    }
-
-    const sequenceNumber = await ctx.runMutation(
-      internal.threads.internalGetNextSequenceNumber,
-      {
-        threadId: args.threadId,
-      },
+    // api.threads.get above enforced shop access.
+    const newJobId = await ctx.runMutation(
+      internal.pendingMessages.enqueueSimulated,
+      { threadId: args.threadId, content: args.content },
     );
-
-    await ctx.runMutation(internal.pendingMessages.addPendingMessage, {
-      threadId: args.threadId,
-      content: args.content,
-      timestamp: Date.now(),
-      sequenceNumber,
-    });
-
-    const pageId =
-      thread.platform === "instagram"
-        ? (shop.instagramAccountId ?? shop.metaPageId)
-        : shop.metaPageId;
-
-    const newJobId = await ctx.runAction(
-      internal.scheduler.scheduleMessageProcessing,
-      {
-        threadId: args.threadId,
-        senderId: thread.platformUserId,
-        pageId,
-        platform: thread.platform,
-        simulateOnly: true,
-      },
-    );
-
-    await ctx.runMutation(internal.threads.internalUpdateScheduledJob, {
-      threadId: args.threadId,
-      jobId: newJobId,
-    });
 
     return { success: true, jobId: newJobId };
   },
@@ -284,6 +251,7 @@ export const saveHumanAgentMessage = internalMutation({
   args: {
     threadId: v.id("threads"),
     content: v.string(),
+    platformMessageId: v.optional(v.string()),
   },
   returns: v.object({
     success: v.boolean(),
@@ -304,6 +272,7 @@ export const saveHumanAgentMessage = internalMutation({
       role: "human_agent",
       content: args.content,
       timestamp: now,
+      platformMessageId: args.platformMessageId,
     });
 
     const totalMessages = (thread.totalMessages ?? 0) + 1;
@@ -414,48 +383,23 @@ export const internalAddMessage = internalMutation({
     ),
   },
   handler: async (ctx, args) => {
-    const thread = await ctx.db.get(args.threadId);
-    if (!thread) {
-      throw new Error("Thread not found");
+    const { threadId, ...message } = args;
+    return await insertThreadMessage(ctx, threadId, message);
+  },
+});
+
+/** Timestamp of the customer's most recent message, or null if none. */
+export const internalLastCustomerMessageAt = internalQuery({
+  args: { threadId: v.id("threads") },
+  handler: async (ctx, args): Promise<number | null> => {
+    const recent = ctx.db
+      .query("messages")
+      .withIndex("by_thread", (q) => q.eq("threadId", args.threadId))
+      .order("desc");
+    for await (const message of recent) {
+      if (message.role === "user") return message.timestamp;
     }
-
-    const messageId = await ctx.db.insert("messages", {
-      threadId: args.threadId,
-      role: args.role,
-      content: args.content,
-      timestamp: args.timestamp,
-      platformMessageId: args.platformMessageId,
-      toolCalls: args.toolCalls,
-      reasoning: args.reasoning,
-      aiMetadata: args.aiMetadata,
-    });
-
-    const newMessage = await ctx.db.get(messageId);
-    if (newMessage) {
-      await Promise.all([
-        messagesByThread.insert(ctx, newMessage),
-        tokensByThread.insert(ctx, newMessage),
-        costByThread.insert(ctx, newMessage),
-      ]);
-    }
-
-    const unreadCount =
-      args.role === "assistant" ? 0 : (thread.unreadCount ?? 0) + 1;
-    const totalMessages = (thread.totalMessages ?? 0) + 1;
-    const totalTokens =
-      (thread.totalTokens ?? 0) + (args.aiMetadata?.totalTokens ?? 0);
-    const totalCostUsd =
-      (thread.totalCostUsd ?? 0) + (args.aiMetadata?.costUsd ?? 0);
-
-    await ctx.db.patch(args.threadId, {
-      lastMessageAt: args.timestamp,
-      unreadCount,
-      totalMessages,
-      totalTokens,
-      totalCostUsd,
-    });
-
-    return messageId;
+    return null;
   },
 });
 

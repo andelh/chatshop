@@ -4,11 +4,21 @@ import { v } from "convex/values";
 import { z } from "zod";
 import type { ModelProvider } from "../lib/models/config";
 import { internal } from "./_generated/api";
-import type { Doc } from "./_generated/dataModel";
-import { internalAction } from "./_generated/server";
+import type { Doc, Id } from "./_generated/dataModel";
+import { type ActionCtx, internalAction } from "./_generated/server";
 import { calculateCost } from "./lib/cost";
 import { sendMetaMessage, sendTypingIndicator } from "./lib/messaging";
 import { createModel, getProviderOptions } from "./lib/model_provider";
+import {
+  FALLBACK_REPLY,
+  parseAssistantReply,
+  SPLIT_PART_DELAY_MS,
+} from "./lib/pipeline";
+import type { ClaimResult } from "./pendingMessages";
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 // Type for generateText result based on the properties we use
 interface GenerateTextResponse {
@@ -1186,8 +1196,8 @@ export function logAssistantResult(result: any) {
 }
 
 /**
- * Internal action to process batched pending messages.
- * This is called by the scheduler after the 4-second batch window closes.
+ * Reply to a thread's batched customer messages. Scheduled by
+ * pendingMessages.enqueue BATCH_DELAY_MS after the customer's latest message.
  */
 export const processPendingMessages = internalAction({
   args: {
@@ -1197,120 +1207,40 @@ export const processPendingMessages = internalAction({
     platform: v.string(),
     simulateOnly: v.optional(v.boolean()),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<ClaimResult["status"]> => {
+    // Moves the pending rows into `messages` and takes the batch lock.
+    const claim: ClaimResult = await ctx.runMutation(
+      internal.pendingMessages.claimBatch,
+      args,
+    );
+    if (claim.status !== "claimed") {
+      console.log(`Batch for thread ${args.threadId}: ${claim.status}`);
+      return claim.status;
+    }
+
+    let accessToken: string | undefined;
+    let partsDelivered = 0;
     try {
-      // 1. Fetch all pending messages for this thread
-      const pendingMessages: Doc<"pending_messages">[] = await ctx.runQuery(
-        internal.pendingMessages.getPendingMessages,
-        { threadId: args.threadId },
-      );
-
-      if (pendingMessages.length === 0) {
-        console.log(
-          "No pending messages to process for thread:",
-          args.threadId,
-        );
-        // Clear the scheduled job ID since there's nothing to process
-        await ctx.runMutation(internal.threads.internalClearScheduledJob, {
-          threadId: args.threadId,
-        });
-        return;
-      }
-
-      console.log(
-        `Processing ${pendingMessages.length} batched messages for thread:`,
-        args.threadId,
-      );
-
-      // 2. Concatenate all pending messages into a single message
-      // Sort by sequence number to ensure correct order
-      const sortedMessages = pendingMessages.sort(
-        (a: Doc<"pending_messages">, b: Doc<"pending_messages">) =>
-          a.sequenceNumber - b.sequenceNumber,
-      );
-      const batchedContent = sortedMessages
-        .map((m: Doc<"pending_messages">) => m.content)
-        .join(". ");
-
-      // Get the first platform message ID for duplicate detection
-      const firstPlatformMessageId = sortedMessages.find(
-        (m: Doc<"pending_messages">) => m.platformMessageId,
-      )?.platformMessageId;
-
-      // 3. Fetch shop and thread info
       const thread = await ctx.runQuery(internal.threads.internalGet, {
         threadId: args.threadId,
       });
       if (!thread) {
         throw new Error(`Thread not found: ${args.threadId}`);
       }
-
       const shop = await ctx.runQuery(internal.shops.internalGet, {
         shopId: thread.shopId,
       });
       if (!shop) {
         throw new Error(`Shop not found for thread: ${args.threadId}`);
       }
+      accessToken = shop.metaPageAccessToken;
 
       const storefront = {
         endpoint: shop.shopifyDomain,
         accessToken: shop.shopifyAccessToken,
       };
 
-      const accessToken = shop.metaPageAccessToken;
-
-      // Check if shop-wide agent pause is enabled
-      const shopSettings = shop.settings as any;
-      if (shopSettings.agentPaused) {
-        console.log(
-          `Shop agent is paused. Saving messages but skipping AI processing for thread ${args.threadId}`,
-        );
-        // Save the batched user message for conversation history
-        const now = Date.now();
-        await ctx.runMutation(internal.messages.internalAddMessage, {
-          threadId: args.threadId,
-          role: "user",
-          content: batchedContent,
-          timestamp: now,
-          platformMessageId: firstPlatformMessageId,
-        });
-        // Clear the scheduled job since we're not processing with AI
-        await ctx.runMutation(internal.threads.internalClearScheduledJob, {
-          threadId: args.threadId,
-        });
-        await ctx.runMutation(internal.pendingMessages.clearPendingMessages, {
-          threadId: args.threadId,
-        });
-        return;
-      }
-
-      // Check thread agent status
-      const agentStatus = thread.agentStatus ?? "active";
-      if (agentStatus === "paused" || agentStatus === "handoff") {
-        console.log(
-          `Thread ${args.threadId} is ${agentStatus}. Saving messages but skipping AI processing.`,
-        );
-        // Save the batched user message for conversation history
-        const now = Date.now();
-        await ctx.runMutation(internal.messages.internalAddMessage, {
-          threadId: args.threadId,
-          role: "user",
-          content: batchedContent,
-          timestamp: now,
-          platformMessageId: firstPlatformMessageId,
-        });
-        // Clear the scheduled job since we're not processing with AI
-        await ctx.runMutation(internal.threads.internalClearScheduledJob, {
-          threadId: args.threadId,
-        });
-        await ctx.runMutation(internal.pendingMessages.clearPendingMessages, {
-          threadId: args.threadId,
-        });
-        return;
-      }
-
       if (!args.simulateOnly) {
-        // 4. Show typing indicator during processing
         await sendTypingIndicator({
           recipientId: args.senderId,
           accessToken,
@@ -1318,38 +1248,21 @@ export const processPendingMessages = internalAction({
         });
       }
 
-      // 5. Save the batched user message to the database
-      const now = Date.now();
-      await ctx.runMutation(internal.messages.internalAddMessage, {
-        threadId: args.threadId,
-        role: "user",
-        content: batchedContent,
-        timestamp: now,
-        platformMessageId: firstPlatformMessageId,
-      });
-
-      // 6. Fetch conversation history (last 12 messages)
+      // Conversation history (last 12 messages), including this batch.
       const history: Doc<"messages">[] = await ctx.runQuery(
         internal.messages.internalListByThread,
-        {
-          threadId: args.threadId,
-          limit: 12,
-        },
+        { threadId: args.threadId, limit: 12 },
       );
 
-      // 7. Fetch global AI model settings
       const dbSettings = await ctx.runQuery(
         internal.settings.internalGetSettings,
       );
-
-      // 8. Cast settings to correct types
       const settings: ModelSettings = {
         aiProvider: dbSettings.aiProvider as ModelProvider,
         aiModel: dbSettings.aiModel,
         providerOptions: dbSettings.providerOptions,
       };
 
-      // 9. Run AI assistant with the batched message
       const result = await runShopAssistant({
         history: history.map((message: Doc<"messages">) => ({
           // Convert human_agent role to assistant for AI processing
@@ -1362,63 +1275,43 @@ export const processPendingMessages = internalAction({
 
       logAssistantResult(result);
 
-      // 9. Extract metadata
       const allToolCalls = extractToolCalls(result.steps);
       const model = settings.aiModel;
       const usage = result.totalUsage;
+      const { parts, handoffReason } = parseAssistantReply(result.text);
 
-      // Check for handoff request
-      const handoffMatch = result.text.match(/\|\|HANDOFF\|\|(.+)?$/);
-      const hasHandoff = !!handoffMatch;
-      const handoffReason = handoffMatch?.[1]?.trim() || "AI requested handoff";
-
-      // Remove handoff delimiter from the response before processing
-      const textWithoutHandoff = result.text
-        .replace(/\|\|HANDOFF\|\|.+$/, "")
-        .trim();
-
-      // 10. Split response into separate messages if ||SPLIT|| delimiter is present
-      const messageParts = textWithoutHandoff
-        .split(/\|\|SPLIT\|\|/)
-        .map((part) => part.trim())
-        .filter((part) => part.length > 0);
-
-      // If no valid parts (shouldn't happen), use the full response
-      const partsToSend =
-        messageParts.length > 0 ? messageParts : [textWithoutHandoff];
-
-      // 11. Send each part as a separate message with delays
+      // Send each part as a separate message, recording it only once Meta
+      // has accepted it.
       const baseTimestamp = Date.now();
-      for (let i = 0; i < partsToSend.length; i++) {
-        const part = partsToSend[i];
+      for (let i = 0; i < parts.length; i++) {
+        const part = parts[i];
         const isFirstMessage = i === 0;
-        const isLastMessage = i === partsToSend.length - 1;
 
-        // Add a small delay between messages (not before the first one)
         if (!isFirstMessage) {
-          await new Promise((resolve) => setTimeout(resolve, 700)); // 700ms delay for natural pacing
+          await sleep(SPLIT_PART_DELAY_MS);
         }
 
+        let platformMessageId: string | undefined;
         if (!args.simulateOnly) {
-          // Send the message part
-          await sendMetaMessage({
+          ({ messageId: platformMessageId } = await sendMetaMessage({
             recipientId: args.senderId,
             text: part,
             accessToken,
-          });
+          }));
         }
+        partsDelivered++;
 
-        // Save each part as a separate message in the database
         await ctx.runMutation(internal.messages.internalAddMessage, {
           threadId: args.threadId,
           role: "assistant",
           content: part,
-          timestamp: baseTimestamp + i * 100, // Slight timestamp offset to maintain order
+          timestamp: baseTimestamp + i * 100, // keep parts ordered
+          platformMessageId,
           reasoning:
             isFirstMessage && result.reasoning
               ? JSON.stringify(result.reasoning)
               : undefined,
-          toolCalls: isFirstMessage ? allToolCalls : undefined, // Only attach metadata to first part
+          toolCalls: isFirstMessage ? allToolCalls : undefined, // metadata on first part only
           aiMetadata: isFirstMessage
             ? {
                 model,
@@ -1434,14 +1327,9 @@ export const processPendingMessages = internalAction({
               }
             : undefined,
         });
-
-        console.log(
-          `Sent message part ${i + 1}/${partsToSend.length}: "${part.substring(0, 50)}${part.length > 50 ? "..." : ""}"`,
-        );
       }
 
-      // If handoff was requested, trigger handoff after sending response
-      if (hasHandoff) {
+      if (handoffReason) {
         console.log(
           `Handoff requested for thread ${args.threadId}: ${handoffReason}`,
         );
@@ -1452,7 +1340,6 @@ export const processPendingMessages = internalAction({
       }
 
       if (!args.simulateOnly) {
-        // 12. Turn off typing indicator
         await sendTypingIndicator({
           recipientId: args.senderId,
           accessToken,
@@ -1460,41 +1347,79 @@ export const processPendingMessages = internalAction({
         });
       }
 
-      // 13. Clear pending messages queue
-      await ctx.runMutation(internal.pendingMessages.clearPendingMessages, {
-        threadId: args.threadId,
-      });
-
-      // 14. Clear scheduled job ID from thread
-      await ctx.runMutation(internal.threads.internalClearScheduledJob, {
-        threadId: args.threadId,
-      });
-
       console.log(
-        `Successfully processed batch of ${pendingMessages.length} messages`,
+        `Replied to ${claim.messageCount} message(s) on thread ${args.threadId} in ${parts.length} part(s)`,
       );
+      return claim.status;
     } catch (error) {
-      console.error("Error processing pending messages:", error);
-
-      // Clear the pending queue to prevent stuck state
-      try {
-        await ctx.runMutation(internal.pendingMessages.clearPendingMessages, {
-          threadId: args.threadId,
-        });
-        await ctx.runMutation(internal.threads.internalClearScheduledJob, {
-          threadId: args.threadId,
-        });
-      } catch (cleanupError) {
-        console.error(
-          "Error cleaning up after failed batch processing:",
-          cleanupError,
-        );
-      }
-
+      console.error(
+        `Reply failed for thread ${args.threadId}; handing off:`,
+        error,
+      );
+      await handleReplyFailure(ctx, {
+        threadId: args.threadId,
+        recipientId: args.senderId,
+        accessToken,
+        simulateOnly: args.simulateOnly ?? false,
+        partsDelivered,
+        error,
+      });
       throw error;
+    } finally {
+      await ctx.runMutation(internal.pendingMessages.finishBatch, args);
     }
   },
 });
+
+/**
+ * The customer's messages are already stored (claimBatch). Hand the thread to
+ * a human first, so it's flagged even if Meta is down, then tell the customer
+ * someone will follow up, unless part of a reply already reached them.
+ */
+async function handleReplyFailure(
+  ctx: ActionCtx,
+  args: {
+    threadId: Id<"threads">;
+    recipientId: string;
+    accessToken: string | undefined;
+    simulateOnly: boolean;
+    partsDelivered: number;
+    error: unknown;
+  },
+): Promise<void> {
+  const detail =
+    args.error instanceof Error ? args.error.message : String(args.error);
+  try {
+    await ctx.runMutation(internal.threads.internalRequestHandoff, {
+      threadId: args.threadId,
+      reason: `AI reply failed: ${detail}`.slice(0, 500),
+    });
+  } catch (handoffError) {
+    console.error("Failed to hand off thread after error:", handoffError);
+  }
+
+  if (args.partsDelivered > 0) return;
+
+  try {
+    let platformMessageId: string | undefined;
+    if (!args.simulateOnly) {
+      ({ messageId: platformMessageId } = await sendMetaMessage({
+        recipientId: args.recipientId,
+        text: FALLBACK_REPLY,
+        accessToken: args.accessToken,
+      }));
+    }
+    await ctx.runMutation(internal.messages.internalAddMessage, {
+      threadId: args.threadId,
+      role: "assistant",
+      content: FALLBACK_REPLY,
+      timestamp: Date.now(),
+      platformMessageId,
+    });
+  } catch (fallbackError) {
+    console.error("Failed to send fallback reply:", fallbackError);
+  }
+}
 
 /**
  * Retry generating an AI response from a specific point in the conversation.
@@ -1571,9 +1496,7 @@ export const retryMessage = internalAction({
       const retryHistory = historyUpToPoint.slice(0, lastUserMessageIndex + 1);
 
       // 4. Fetch AI model settings
-      const dbSettings = await ctx.runQuery(
-        internal.settings.internalGetSettings,
-      );
+      const dbSettings = await ctx.runQuery(internal.settings.internalGetSettings);
 
       const settings: ModelSettings = {
         aiProvider: dbSettings.aiProvider as ModelProvider,
@@ -1674,22 +1597,10 @@ export const retryMessage = internalAction({
       const model_name = settings.aiModel;
       const usage = result.totalUsage;
 
-      // 8. Split response into separate messages if ||SPLIT|| delimiter is present
-      const handoffMatch = result.text.match(/\|\|HANDOFF\|\|(.+)?$/);
-      const hasHandoff = !!handoffMatch;
-      const handoffReason = handoffMatch?.[1]?.trim() || "AI requested handoff";
-
-      const textWithoutHandoff = result.text
-        .replace(/\|\|HANDOFF\|\|.+$/, "")
-        .trim();
-
-      const messageParts = textWithoutHandoff
-        .split(/\|\|SPLIT\|\|/)
-        .map((part) => part.trim())
-        .filter((part) => part.length > 0);
-
-      const partsToSend =
-        messageParts.length > 0 ? messageParts : [textWithoutHandoff];
+      // 8. Split into parts and pull out any handoff request
+      const { parts: partsToSend, handoffReason } = parseAssistantReply(
+        result.text,
+      );
 
       // 9. Send each part as a separate message with delays
       const baseTimestamp = Date.now();
@@ -1700,11 +1611,11 @@ export const retryMessage = internalAction({
         const isFirstMessage = i === 0;
 
         if (!isFirstMessage) {
-          await new Promise((resolve) => setTimeout(resolve, 700));
+          await sleep(SPLIT_PART_DELAY_MS);
         }
 
-        // Send the message part
-        await sendMetaMessage({
+        // Send the message part; throws if Meta rejects it
+        const { messageId: platformMessageId } = await sendMetaMessage({
           recipientId: thread.platformUserId,
           text: part,
           accessToken,
@@ -1718,6 +1629,7 @@ export const retryMessage = internalAction({
             role: "assistant",
             content: part,
             timestamp: baseTimestamp + i * 100,
+            platformMessageId,
             reasoning:
               isFirstMessage && result.reasoning
                 ? JSON.stringify(result.reasoning)
@@ -1748,7 +1660,7 @@ export const retryMessage = internalAction({
       }
 
       // 10. Handle handoff if requested
-      if (hasHandoff) {
+      if (handoffReason) {
         console.log(
           `Handoff requested during retry for thread ${args.threadId}: ${handoffReason}`,
         );

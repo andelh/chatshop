@@ -1,9 +1,11 @@
+import { META_GRAPH_BASE_URL } from "@/convex/lib/metaGraph";
+
 export async function fetchMessengerProfileName(
   senderId: string,
   pageAccessToken: string,
 ): Promise<string | undefined> {
   try {
-    const url = new URL(`https://graph.facebook.com/v18.0/${senderId}`);
+    const url = new URL(`${META_GRAPH_BASE_URL}/${senderId}`);
     url.searchParams.set("fields", "first_name,last_name");
     url.searchParams.set("access_token", pageAccessToken);
 
@@ -27,7 +29,7 @@ export async function fetchInstagramProfileName(
   pageAccessToken: string,
 ): Promise<string | undefined> {
   try {
-    const url = new URL(`https://graph.facebook.com/v18.0/${senderId}`);
+    const url = new URL(`${META_GRAPH_BASE_URL}/${senderId}`);
     url.searchParams.set("fields", "name,username");
     url.searchParams.set("access_token", pageAccessToken);
 
@@ -54,7 +56,7 @@ export async function sendMetaMessage({
     throw new Error("Missing META_PAGE_ACCESS_TOKEN for sending messages");
   }
 
-  const response = await fetch(`https://graph.facebook.com/v18.0/me/messages`, {
+  const response = await fetch(`${META_GRAPH_BASE_URL}/me/messages`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -83,7 +85,7 @@ export async function sendTypingIndicator({
     throw new Error("Missing META_PAGE_ACCESS_TOKEN for typing indicator");
   }
 
-  const response = await fetch(`https://graph.facebook.com/v18.0/me/messages`, {
+  const response = await fetch(`${META_GRAPH_BASE_URL}/me/messages`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

@@ -81,6 +81,9 @@ export default defineSchema({
     // Scheduling state for message batching
     scheduledJobId: v.optional(v.string()),
     pendingSequenceCounter: v.optional(v.number()),
+    // Set while a batch is being generated; stops a second run from replying
+    // concurrently. Treated as stale after BATCH_LOCK_STALE_MS.
+    batchStartedAt: v.optional(v.number()),
 
     // Agent status for human-in-the-loop
     agentStatus: v.optional(
@@ -110,7 +113,8 @@ export default defineSchema({
     sequenceNumber: v.number(),
   })
     .index("by_thread", ["threadId"])
-    .index("by_thread_sequence", ["threadId", "sequenceNumber"]),
+    .index("by_thread_sequence", ["threadId", "sequenceNumber"])
+    .index("by_platform_message_id", ["platformMessageId"]),
 
   // Individual messages within threads
   messages: defineTable({

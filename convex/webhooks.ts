@@ -1,14 +1,24 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import type { Doc, Id } from "./_generated/dataModel";
-import { httpAction, internalAction } from "./_generated/server";
+import { httpAction, internalMutation } from "./_generated/server";
 import { verifyMetaSignature } from "./lib/metaSignature";
+import { ECHO_GRACE_MS } from "./lib/pipeline";
+import {
+  findShopForPage,
+  getOrCreateThread,
+  insertThreadMessage,
+  isKnownPlatformMessage,
+} from "./lib/threadMessages";
 
 type Platform = "messenger" | "instagram";
 
-type QueueResult =
-  | { success: true; threadId: Id<"threads"> }
-  | { success: false; reason: "shop_not_found" | "duplicate" };
+type MetaWebhookMessage = {
+  mid?: string;
+  text?: unknown;
+  is_echo?: boolean;
+  app_id?: number | string;
+  attachments?: unknown[];
+};
 
 /** The parts of a Meta webhook payload this handler reads. */
 type MetaWebhookBody = {
@@ -17,7 +27,9 @@ type MetaWebhookBody = {
     id: string;
     messaging?: Array<{
       sender?: { id: string };
-      message?: { mid?: string; text?: unknown; is_echo?: boolean };
+      recipient?: { id: string };
+      timestamp?: number;
+      message?: MetaWebhookMessage;
     }>;
   }>;
 };
@@ -103,22 +115,48 @@ export const metaWebhook = httpAction(async (ctx, request) => {
   for (const entry of body.entry ?? []) {
     const pageId: string = entry.id;
     for (const event of entry.messaging ?? []) {
-      // Skip echoes of our own outbound messages and anything the page sent.
-      if (event.message?.is_echo || event.sender?.id === pageId) {
-        continue;
-      }
-      const senderId = event.sender?.id;
-      const text = event.message?.text;
-      if (!senderId || typeof text !== "string" || text.length === 0) {
+      const message = event.message;
+      if (!message) continue;
+
+      if (message.is_echo) {
+        // Something the page sent: either our own reply or a staff member
+        // writing from Meta Business Suite. Decide after a grace period, once
+        // our own send has had time to store its mid.
+        const customerId: unknown = event.recipient?.id;
+        if (typeof customerId !== "string" || !message.mid) continue;
+        await ctx.scheduler.runAfter(
+          ECHO_GRACE_MS,
+          internal.webhooks.recordPageEcho,
+          {
+            platform,
+            pageId,
+            customerId,
+            platformMessageId: message.mid,
+            content: echoContent(message),
+            timestamp:
+              typeof event.timestamp === "number" ? event.timestamp : undefined,
+          },
+        );
         continue;
       }
 
-      await ctx.runAction(internal.webhooks.queueIncomingMessage, {
+      const senderId = event.sender?.id;
+      const text = message.text;
+      if (
+        !senderId ||
+        senderId === pageId ||
+        typeof text !== "string" ||
+        text.length === 0
+      ) {
+        continue;
+      }
+
+      await ctx.runMutation(internal.pendingMessages.enqueue, {
         platform,
         pageId,
         senderId,
-        messageText: text,
-        platformMessageId: event.message?.mid,
+        content: text,
+        platformMessageId: message.mid,
       });
     }
   }
@@ -126,96 +164,61 @@ export const metaWebhook = httpAction(async (ctx, request) => {
   return new Response("EVENT_RECEIVED", { status: 200 });
 });
 
+function echoContent(message: MetaWebhookMessage): string {
+  if (typeof message.text === "string" && message.text.length > 0) {
+    return message.text;
+  }
+  const count = Array.isArray(message.attachments)
+    ? message.attachments.length
+    : 0;
+  return count > 1 ? `[${count} attachments]` : "[attachment]";
+}
+
 /**
- * Queue an incoming message for batch processing. Internal only: reached from
- * the signed webhook handler above, never directly from a client.
+ * Handle a page echo. If the mid is one we sent and stored, ignore it.
+ * Otherwise a person replied from the native inbox (Meta Business Suite):
+ * record it as a human_agent message and pause the AI on that thread.
  */
-export const queueIncomingMessage = internalAction({
+export const recordPageEcho = internalMutation({
   args: {
     platform: v.union(v.literal("messenger"), v.literal("instagram")),
     pageId: v.string(),
-    senderId: v.string(),
-    messageText: v.string(),
-    platformMessageId: v.optional(v.string()),
+    customerId: v.string(),
+    platformMessageId: v.string(),
+    content: v.string(),
+    timestamp: v.optional(v.number()),
   },
-  handler: async (ctx, args): Promise<QueueResult> => {
-    if (args.platformMessageId) {
-      const existing = await ctx.runQuery(
-        internal.messages.internalGetByPlatformMessageId,
-        { platformMessageId: args.platformMessageId },
-      );
-      if (existing) {
-        console.log("Skipping duplicate message:", args.platformMessageId);
-        return { success: false, reason: "duplicate" };
-      }
+  handler: async (
+    ctx,
+    args,
+  ): Promise<"ours" | "recorded" | "shop_not_found"> => {
+    if (await isKnownPlatformMessage(ctx, args.platformMessageId)) {
+      return "ours";
     }
 
-    const shop: Doc<"shops"> | null =
-      args.platform === "messenger"
-        ? await ctx.runQuery(internal.shops.internalGetByMetaPageId, {
-            metaPageId: args.pageId,
-          })
-        : await ctx.runQuery(internal.shops.internalGetByInstagramAccountId, {
-            instagramAccountId: args.pageId,
-          });
+    const shop = await findShopForPage(ctx, args.platform, args.pageId);
+    if (!shop) return "shop_not_found";
 
-    if (!shop) {
-      console.error(
-        `Shop not found for ${args.platform} pageId: ${args.pageId}`,
-      );
-      return { success: false, reason: "shop_not_found" };
-    }
-
-    const threadId: Id<"threads"> = await ctx.runMutation(
-      internal.threads.internalGetOrCreate,
-      {
-        shopId: shop._id,
-        platform: args.platform,
-        platformUserId: args.senderId,
-      },
-    );
-
-    const thread = await ctx.runQuery(internal.threads.internalGet, {
-      threadId,
+    const thread = await getOrCreateThread(ctx, {
+      shopId: shop._id,
+      platform: args.platform,
+      platformUserId: args.customerId,
     });
-    if (thread?.scheduledJobId) {
-      try {
-        await ctx.runAction(internal.scheduler.cancelScheduledJob, {
-          jobId: thread.scheduledJobId,
-        });
-      } catch (error) {
-        console.error("Error cancelling existing scheduled job:", error);
-      }
-    }
 
-    const sequenceNumber = await ctx.runMutation(
-      internal.threads.internalGetNextSequenceNumber,
-      { threadId },
-    );
-
-    await ctx.runMutation(internal.pendingMessages.addPendingMessage, {
-      threadId,
-      content: args.messageText,
-      timestamp: Date.now(),
+    const timestamp = args.timestamp ?? Date.now();
+    await insertThreadMessage(ctx, thread._id, {
+      role: "human_agent",
+      content: args.content,
+      timestamp,
       platformMessageId: args.platformMessageId,
-      sequenceNumber,
     });
-
-    const newJobId = await ctx.runAction(
-      internal.scheduler.scheduleMessageProcessing,
-      {
-        threadId,
-        senderId: args.senderId,
-        pageId: args.pageId,
-        platform: args.platform,
-      },
-    );
-
-    await ctx.runMutation(internal.threads.internalUpdateScheduledJob, {
-      threadId,
-      jobId: newJobId,
+    await ctx.db.patch(thread._id, {
+      agentStatus: "paused",
+      agentPausedAt: Date.now(),
+      agentPausedReason: "Staff replied from the Meta inbox",
+      hasHumanIntervention: true,
+      lastHumanMessageAt: timestamp,
     });
-
-    return { success: true, threadId };
+    return "recorded";
   },
 });
