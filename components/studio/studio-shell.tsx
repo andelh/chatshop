@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuthActions } from "@convex-dev/auth/react";
-import { useQuery } from "convex/react";
+import { useConvexAuth, useQuery } from "convex/react";
 import { LogOut, Menu, Settings } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -31,7 +31,11 @@ export function StudioShell({ children }: { children: React.ReactNode }) {
   const selectedThreadId = params?.threadId as Id<"threads"> | undefined;
   const shopIdParam = searchParams.get("shop");
 
-  const userShops = useQuery(api.shopMembers.listUserShops);
+  const { isAuthenticated } = useConvexAuth();
+  const userShops = useQuery(
+    api.shopMembers.listUserShops,
+    isAuthenticated ? {} : "skip",
+  );
   const currentShop =
     userShops?.find((s) => s._id === shopIdParam) ?? userShops?.[0];
   const currentShopId = currentShop?._id;

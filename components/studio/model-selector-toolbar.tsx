@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "convex/react";
+import { useConvexAuth, useQuery } from "convex/react";
 import { ChevronDown, Cpu, Settings, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
@@ -21,7 +21,11 @@ import {
 } from "@/lib/models/config";
 
 export function ModelSelectorToolbar() {
-  const settings = useQuery(api.settings.getSettings);
+  const { isAuthenticated } = useConvexAuth();
+  const settings = useQuery(
+    api.settings.getSettings,
+    isAuthenticated ? {} : "skip",
+  );
 
   if (!settings) {
     return (

@@ -10,6 +10,18 @@ type QueueResult =
   | { success: true; threadId: Id<"threads"> }
   | { success: false; reason: "shop_not_found" | "duplicate" };
 
+/** The parts of a Meta webhook payload this handler reads. */
+type MetaWebhookBody = {
+  object?: unknown;
+  entry?: Array<{
+    id: string;
+    messaging?: Array<{
+      sender?: { id: string };
+      message?: { mid?: string; text?: unknown; is_echo?: boolean };
+    }>;
+  }>;
+};
+
 function platformForObject(object: unknown): Platform | null {
   switch (object) {
     case "page":
@@ -50,9 +62,9 @@ export const metaWebhook = httpAction(async (ctx, request) => {
   const rawBody = await request.arrayBuffer();
   const bodyText = new TextDecoder().decode(rawBody);
 
-  let body: any;
+  let body: MetaWebhookBody;
   try {
-    body = JSON.parse(bodyText);
+    body = JSON.parse(bodyText) as MetaWebhookBody;
   } catch {
     return new Response("Bad Request", { status: 400 });
   }
@@ -90,17 +102,18 @@ export const metaWebhook = httpAction(async (ctx, request) => {
       if (event.message?.is_echo || event.sender?.id === pageId) {
         continue;
       }
-      const text: unknown = event.message?.text;
-      if (typeof text !== "string" || text.length === 0) {
+      const senderId = event.sender?.id;
+      const text = event.message?.text;
+      if (!senderId || typeof text !== "string" || text.length === 0) {
         continue;
       }
 
       await ctx.runAction(internal.webhooks.queueIncomingMessage, {
         platform,
         pageId,
-        senderId: event.sender.id,
+        senderId,
         messageText: text,
-        platformMessageId: event.message.mid ?? undefined,
+        platformMessageId: event.message?.mid,
       });
     }
   }
