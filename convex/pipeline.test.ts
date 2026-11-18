@@ -409,6 +409,24 @@ describe("failure path", () => {
     ]);
   });
 
+  it("hands off with a refusal reason when the model declines", async () => {
+    const t = setupConvex();
+    await createShop(t);
+    const { sent } = stubMeta();
+    generateTextMock.mockResolvedValue({
+      ...modelReply(""),
+      finishReason: "content-filter",
+    });
+
+    const threadId = threadIdOf(await receive(t, "hello?", "m_in_1"));
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    expect(sent.map((m) => m.text)).toEqual([FALLBACK_REPLY]);
+    const { thread } = await threadState(t, threadId);
+    expect(thread?.agentStatus).toBe("handoff");
+    expect(thread?.agentPausedReason).toContain("refusal");
+  });
+
   it("doesn't record a reply Meta rejected", async () => {
     const t = setupConvex();
     await createShop(t);

@@ -72,6 +72,11 @@ async function generateAndDeliverReply(
     settings,
   });
   logAssistantResult(result);
+  if (result.finishReason === "content-filter") {
+    // Anthropic `stop_reason: "refusal"`. Hand off with a reason Studio can
+    // tell apart from an empty reply.
+    throw new Error("Model declined to reply (refusal)");
+  }
 
   const { parts, handoffReason } = parseAssistantReply(result.text);
   const messageIds: Id<"messages">[] = [];
