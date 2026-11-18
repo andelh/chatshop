@@ -1,6 +1,8 @@
 import { generateText, stepCountIs } from "ai";
-import type { ModelProvider } from "../../../lib/models/config";
-import { calculateModelCost } from "../../../lib/models/config";
+import {
+  calculateModelCost,
+  type ModelProvider,
+} from "../../../lib/models/config";
 import {
   createModel,
   getProviderOptions,
@@ -21,6 +23,16 @@ export interface ModelSettings {
   providerOptions?: StoredProviderOptions;
 }
 
+/**
+ * Drop turns before the first customer message. A history window can start
+ * mid-conversation on an assistant (or staff) turn, and providers expect the
+ * conversation to open with the user.
+ */
+export function trimToFirstUserTurn(history: ChatMessage[]): ChatMessage[] {
+  const firstUser = history.findIndex((message) => message.role === "user");
+  return firstUser === -1 ? [] : history.slice(firstUser);
+}
+
 /** Run the shop assistant over a conversation that ends on a user turn. */
 export async function runShopAssistant({
   history,
@@ -34,7 +46,7 @@ export async function runShopAssistant({
   return await generateText({
     model: createModel(settings.aiProvider, settings.aiModel),
     system: ISUPPLY_SYSTEM_PROMPT,
-    messages: history,
+    messages: trimToFirstUserTurn(history),
     tools: createShopifyTools(storefront),
     providerOptions: getProviderOptions(
       settings.aiProvider,
@@ -61,29 +73,35 @@ export function buildAiMetadata(model: string, result: AssistantResult) {
   };
 }
 
-// Extract tool calls from AI response steps
+/**
+ * One tool call in the shape Studio stores. AI SDK step objects have used
+ * different field names across versions, so read each field from any of them.
+ */
+function normalizeToolCall(toolCall: any) {
+  const result = toolCall.result || toolCall.output || toolCall.response;
+  return {
+    toolCallId: toolCall.toolCallId || toolCall.callId,
+    toolName: toolCall.toolName || toolCall.tool?.name,
+    args:
+      toolCall.args ||
+      toolCall.parameters ||
+      toolCall.arguments ||
+      toolCall.input,
+    result,
+    state: toolCall.state || (result ? "output-available" : "input-available"),
+  };
+}
+
+/** Tool calls from every step of a reply, for the message's `toolCalls`. */
 export function extractToolCalls(steps: any[] | undefined) {
   return (
     steps?.flatMap(
-      (step: any) =>
-        step.toolCalls?.map((toolCall: any) => ({
-          toolCallId: toolCall.toolCallId || toolCall.callId,
-          toolName: toolCall.toolName || toolCall.tool?.name,
-          args:
-            toolCall.args ||
-            toolCall.parameters ||
-            toolCall.arguments ||
-            toolCall.input,
-          result: toolCall.result || toolCall.output || toolCall.response,
-          state:
-            toolCall.state ||
-            (toolCall.result ? "output-available" : "input-available"),
-        })) || [],
+      (step: any) => step.toolCalls?.map(normalizeToolCall) || [],
     ) || []
   );
 }
 
-// Log AI assistant results
+/** Log a reply's token usage, steps and tool calls. */
 export function logAssistantResult(result: any) {
   console.log("\n🤖 AI Response Generated:");
   console.log(`Reasoning tokens: ${result.totalUsage?.reasoningTokens || 0}`);
@@ -94,30 +112,20 @@ export function logAssistantResult(result: any) {
     console.log(`\n--- Step ${index + 1} ---`);
     console.log(`Tool calls: ${step.toolCalls?.length || 0}`);
 
-    step.toolCalls?.forEach((toolCall: any, toolIndex: number) => {
+    step.toolCalls?.forEach((rawToolCall: any, toolIndex: number) => {
+      const toolCall = normalizeToolCall(rawToolCall);
       console.log(
-        `\n  Tool ${toolIndex + 1}: ${toolCall.toolName || toolCall.tool?.name || "unknown"}`,
+        `\n  Tool ${toolIndex + 1}: ${toolCall.toolName || "unknown"}`,
       );
-      console.log(
-        `  Tool Call ID: ${toolCall.toolCallId || toolCall.callId || "N/A"}`,
-      );
-
-      const args =
-        toolCall.args ||
-        toolCall.parameters ||
-        toolCall.arguments ||
-        toolCall.input;
-      console.log(`  Args: ${JSON.stringify(args, null, 2)}`);
-
-      if (toolCall.result || toolCall.output || toolCall.response) {
-        const resultPayload =
-          toolCall.result || toolCall.output || toolCall.response;
+      console.log(`  Tool Call ID: ${toolCall.toolCallId || "N/A"}`);
+      console.log(`  Args: ${JSON.stringify(toolCall.args, null, 2)}`);
+      if (toolCall.result) {
         console.log(
-          `  Result: ${JSON.stringify(resultPayload, null, 2).substring(0, 200)}...`,
+          `  Result: ${JSON.stringify(toolCall.result, null, 2).substring(0, 200)}...`,
         );
       }
-      if (toolCall.error) {
-        console.log(`  Error: ${toolCall.error}`);
+      if (rawToolCall.error) {
+        console.log(`  Error: ${rawToolCall.error}`);
       }
     });
 

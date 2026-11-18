@@ -4,9 +4,9 @@ import {
   DEFAULT_MODEL_CONFIG,
   getAllModels,
 } from "../lib/models/config";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { getProviderOptions, isValidModel } from "./lib/model_provider";
-import { setupConvex } from "./test.setup";
+import { setupConvex, signInAs } from "./test.setup";
 
 describe("default model", () => {
   it("is Claude Opus 5.5 at low effort when no settings row exists", async () => {
@@ -31,6 +31,77 @@ describe("default model", () => {
     await t.mutation(internal.settings.resetModelConfig, {});
     const settings = await t.query(internal.settings.internalGetSettings, {});
     expect(settings.aiModel).toBe(DEFAULT_MODEL_CONFIG.model);
+  });
+});
+
+describe("updateModelConfig", () => {
+  async function seed() {
+    const t = setupConvex();
+    const { ownerId, memberId } = await t.run(async (ctx) => {
+      const ownerId = await ctx.db.insert("users", {});
+      const memberId = await ctx.db.insert("users", {});
+      const shopId = await ctx.db.insert("shops", {
+        shopifyDomain: "https://example.myshopify.com/api/graphql.json",
+        shopifyAccessToken: "shopify_token",
+        metaPageId: "page_1",
+        metaPageAccessToken: "page_token",
+        settings: { autoReplyEnabled: true },
+        ownerId,
+      });
+      await ctx.db.insert("shopMembers", {
+        userId: ownerId,
+        shopId,
+        role: "owner",
+      });
+      await ctx.db.insert("shopMembers", {
+        userId: memberId,
+        shopId,
+        role: "member",
+      });
+      return { ownerId, memberId };
+    });
+    return {
+      t,
+      owner: t.withIdentity(await signInAs(t, ownerId)),
+      member: t.withIdentity(await signInAs(t, memberId)),
+    };
+  }
+
+  const opusHigh = {
+    aiProvider: "anthropic",
+    aiModel: "claude-opus-5-5",
+    providerOptions: { anthropicEffort: "high" },
+  };
+
+  it("lets a shop owner set the effort, which then reaches the model options", async () => {
+    const { t, owner } = await seed();
+    await owner.mutation(api.settings.updateModelConfig, opusHigh);
+    const settings = await t.query(internal.settings.internalGetSettings, {});
+    expect(
+      getProviderOptions("anthropic", settings.providerOptions).anthropic,
+    ).toMatchObject({ effort: "high" });
+  });
+
+  it("refuses non-owners and anonymous callers", async () => {
+    const { t, member } = await seed();
+    await expect(
+      member.mutation(api.settings.updateModelConfig, opusHigh),
+    ).rejects.toThrow(/owner/i);
+    await expect(
+      t.mutation(api.settings.updateModelConfig, opusHigh),
+    ).rejects.toThrow();
+    const settings = await t.query(internal.settings.internalGetSettings, {});
+    expect(settings.providerOptions?.anthropicEffort).toBe("low");
+  });
+
+  it("rejects a model the provider doesn't offer", async () => {
+    const { owner } = await seed();
+    await expect(
+      owner.mutation(api.settings.updateModelConfig, {
+        aiProvider: "anthropic",
+        aiModel: "gpt-5.2",
+      }),
+    ).rejects.toThrow(/Unknown model/);
   });
 });
 
