@@ -1,7 +1,7 @@
 import { generateText } from "ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { internal } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { sendMetaMessage } from "./lib/messaging";
 import {
   BATCH_DELAY_MS,
@@ -63,14 +63,17 @@ function stubMeta(opts: { failSends?: boolean; profile?: object } = {}) {
   return { sent, fetchMock };
 }
 
-async function createShop(t: ReturnType<typeof setupConvex>) {
+async function createShop(
+  t: ReturnType<typeof setupConvex>,
+  settings: Doc<"shops">["settings"] = { autoReplyEnabled: true },
+) {
   return await t.run(async (ctx) =>
     ctx.db.insert("shops", {
       shopifyDomain: "https://example.myshopify.com/api/graphql.json",
       shopifyAccessToken: "shopify_token",
       metaPageId: PAGE_ID,
       metaPageAccessToken: "page_token",
-      settings: { autoReplyEnabled: true },
+      settings,
       ownerId: "owner_1",
     }),
   );
@@ -691,6 +694,54 @@ describe("signed Meta webhook", () => {
     expect(
       messages.find((m) => m.role === "assistant")?.platformMessageId,
     ).toBe("m_out_unknown");
+  });
+});
+
+describe("auto-reply and business hours", () => {
+  // Monday 2026-11-16, UTC.
+  const mondayAt = (hhmm: string) => new Date(`2026-11-16T${hhmm}:00Z`);
+  const weekdayHours = {
+    timezone: "UTC",
+    days: { mon: { open: "09:00", close: "17:00" } },
+  };
+
+  async function replyCount(settings: Doc<"shops">["settings"], at: Date) {
+    vi.setSystemTime(at);
+    const t = setupConvex();
+    await createShop(t, settings);
+    const { sent } = stubMeta();
+    generateTextMock.mockResolvedValue(modelReply("Hi!"));
+    const threadId = threadIdOf(await receive(t, "hello", "m_in_1"));
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    const { messages, thread } = await threadState(t, threadId);
+    // The customer's message is always kept for staff.
+    expect(messages.filter((m) => m.role === "user")).toHaveLength(1);
+    expect(thread?.batchStartedAt).toBeUndefined();
+    return sent.length;
+  }
+
+  it("stores but doesn't reply when auto-reply is off", async () => {
+    expect(
+      await replyCount({ autoReplyEnabled: false }, mondayAt("10:00")),
+    ).toBe(0);
+    expect(generateTextMock).not.toHaveBeenCalled();
+  });
+
+  it("replies only inside business hours", async () => {
+    const settings = { autoReplyEnabled: true, businessHours: weekdayHours };
+    expect(await replyCount(settings, mondayAt("10:00"))).toBe(1);
+    generateTextMock.mockClear();
+    expect(await replyCount(settings, mondayAt("08:59"))).toBe(0);
+    expect(await replyCount(settings, mondayAt("17:00"))).toBe(0);
+    expect(generateTextMock).not.toHaveBeenCalled();
+  });
+
+  it("treats unparseable stored hours as no restriction", async () => {
+    const settings = {
+      autoReplyEnabled: true,
+      businessHours: { timezone: "Mars/Olympus_Mons", days: {} },
+    };
+    expect(await replyCount(settings, mondayAt("03:00"))).toBe(1);
   });
 });
 

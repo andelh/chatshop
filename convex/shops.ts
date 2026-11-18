@@ -1,8 +1,23 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { internalQuery, mutation, query } from "./_generated/server";
 import { requireAuth, requireShopAccess } from "./lib/auth";
+import { businessHoursError } from "./lib/businessHours";
 import { toPublicShop } from "./lib/publicShop";
+
+const dayHours = v.optional(v.object({ open: v.string(), close: v.string() }));
+const businessHoursValidator = v.object({
+  timezone: v.string(),
+  days: v.object({
+    mon: dayHours,
+    tue: dayHours,
+    wed: dayHours,
+    thu: dayHours,
+    fri: dayHours,
+    sat: dayHours,
+    sun: dayHours,
+  }),
+});
 
 /**
  * Internal shop lookup for use by scheduled actions — no user auth required.
@@ -122,6 +137,8 @@ export const updateShopSettings = mutation({
   args: {
     shopId: v.id("shops"),
     autoReplyEnabled: v.optional(v.boolean()),
+    /** null clears the hours, so the AI replies at any time. */
+    businessHours: v.optional(v.union(v.null(), businessHoursValidator)),
   },
   handler: async (ctx, args) => {
     await requireShopAccess(ctx, args.shopId);
@@ -132,6 +149,13 @@ export const updateShopSettings = mutation({
     const patch: Record<string, unknown> = {};
     if (args.autoReplyEnabled !== undefined) {
       patch.autoReplyEnabled = args.autoReplyEnabled;
+    }
+    if (args.businessHours !== undefined) {
+      const error = args.businessHours
+        ? businessHoursError(args.businessHours)
+        : null;
+      if (error) throw new ConvexError(error);
+      patch.businessHours = args.businessHours ?? undefined;
     }
 
     await ctx.db.patch(args.shopId, {
