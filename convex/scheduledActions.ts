@@ -1338,7 +1338,9 @@ export const processPendingMessages = internalAction({
       );
 
       // 7. Fetch global AI model settings
-      const dbSettings = await ctx.runQuery(internal.settings.internalGetSettings);
+      const dbSettings = await ctx.runQuery(
+        internal.settings.internalGetSettings,
+      );
 
       // 8. Cast settings to correct types
       const settings: ModelSettings = {
@@ -1569,7 +1571,9 @@ export const retryMessage = internalAction({
       const retryHistory = historyUpToPoint.slice(0, lastUserMessageIndex + 1);
 
       // 4. Fetch AI model settings
-      const dbSettings = await ctx.runQuery(internal.settings.internalGetSettings);
+      const dbSettings = await ctx.runQuery(
+        internal.settings.internalGetSettings,
+      );
 
       const settings: ModelSettings = {
         aiProvider: dbSettings.aiProvider as ModelProvider,

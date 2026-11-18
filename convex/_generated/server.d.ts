@@ -33,7 +33,7 @@ type Env = {
   readonly RESEND_API_KEY: string;
   readonly SENDER_EMAIL: string;
   readonly SENDER_NAME: string | undefined;
-  readonly SITE_URL: string | undefined;
+  readonly SITE_URL: string;
 };
 
 /**

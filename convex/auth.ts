@@ -3,8 +3,6 @@ import { setupConvexAuth } from "@convex-dev/auth/server";
 import { components, internal } from "./_generated/api";
 import { env } from "./_generated/server";
 
-const SITE_URL = env.SITE_URL ?? "http://localhost:3000";
-
 const auth = setupConvexAuth({ component: components.auth });
 export const { signOut, refreshSession, isAuthenticated } = auth;
 
@@ -29,8 +27,8 @@ export const {
   },
   // Landing pages live under /auth, which the Next.js proxy leaves public.
   urls: {
-    signUp: `${SITE_URL}/auth/validate-email`,
-    changeEmail: `${SITE_URL}/auth/confirm-email-change`,
-    recovery: `${SITE_URL}/auth/reset-password`,
+    signUp: `${env.SITE_URL}/auth/validate-email`,
+    changeEmail: `${env.SITE_URL}/auth/confirm-email-change`,
+    recovery: `${env.SITE_URL}/auth/reset-password`,
   },
 }).attachUserCallbacks({ createUser: internal.users.createUser });

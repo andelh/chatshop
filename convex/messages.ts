@@ -239,7 +239,7 @@ export const simulateCustomerMessage = action({
     }
 
     const sequenceNumber = await ctx.runMutation(
-      api.threads.getNextSequenceNumber,
+      internal.threads.internalGetNextSequenceNumber,
       {
         threadId: args.threadId,
       },
@@ -268,7 +268,7 @@ export const simulateCustomerMessage = action({
       },
     );
 
-    await ctx.runMutation(api.threads.updateScheduledJob, {
+    await ctx.runMutation(internal.threads.internalUpdateScheduledJob, {
       threadId: args.threadId,
       jobId: newJobId,
     });

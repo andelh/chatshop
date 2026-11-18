@@ -13,8 +13,9 @@ const app = defineApp({
     RESEND_API_KEY: v.string(),
     SENDER_EMAIL: v.string(), // must be on a domain verified in Resend
     SENDER_NAME: v.optional(v.string()),
-    // Where the Next.js app is served; emailed links point here.
-    SITE_URL: v.optional(v.string()),
+    // Where the Next.js app is served; emailed links point here. Required so
+    // a deployment can't silently send localhost links.
+    SITE_URL: v.string(),
   },
 });
 
