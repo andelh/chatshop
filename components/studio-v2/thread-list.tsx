@@ -107,11 +107,13 @@ export function ThreadList({
   );
 }
 
+const SKELETON_ROWS = ["row-1", "row-2", "row-3", "row-4", "row-5"];
+
 function ThreadListSkeleton() {
   return (
     <div className="px-5 pt-4 space-y-6">
-      {Array.from({ length: 5 }).map((_, i) => (
-        <div key={i} className="space-y-2">
+      {SKELETON_ROWS.map((row) => (
+        <div key={row} className="space-y-2">
           <div className="flex items-center justify-between">
             <Skeleton className="h-4 w-28 rounded" />
             <Skeleton className="h-3 w-8 rounded" />

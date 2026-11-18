@@ -506,6 +506,7 @@ export function ShopsPageClient() {
 function InboxIcon() {
   return (
     <svg
+      aria-hidden="true"
       className="h-4 w-4 shrink-0 text-[#AAA]"
       fill="none"
       viewBox="0 0 24 24"
@@ -523,6 +524,7 @@ function InboxIcon() {
 function StoreIcon() {
   return (
     <svg
+      aria-hidden="true"
       className="h-4 w-4 shrink-0 text-[#1A1A1A]"
       fill="none"
       viewBox="0 0 24 24"
@@ -540,6 +542,7 @@ function StoreIcon() {
 function ZapIcon() {
   return (
     <svg
+      aria-hidden="true"
       className="h-4 w-4 shrink-0 text-[#DDD]"
       fill="none"
       viewBox="0 0 24 24"
@@ -557,6 +560,7 @@ function ZapIcon() {
 function ChartIcon() {
   return (
     <svg
+      aria-hidden="true"
       className="h-4 w-4 shrink-0 text-[#DDD]"
       fill="none"
       viewBox="0 0 24 24"
@@ -574,6 +578,7 @@ function ChartIcon() {
 function SettingsIcon() {
   return (
     <svg
+      aria-hidden="true"
       className="h-4 w-4 shrink-0 text-[#AAA]"
       fill="none"
       viewBox="0 0 24 24"

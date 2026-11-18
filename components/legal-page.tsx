@@ -66,6 +66,7 @@ export function LegalPage({
                 className="inline-flex items-center gap-2 text-sm font-medium tracking-tight text-slate-500 transition-colors hover:text-slate-900"
               >
                 <svg
+                  aria-hidden="true"
                   className="h-4 w-4"
                   fill="none"
                   viewBox="0 0 24 24"
@@ -142,6 +143,7 @@ export function LegalPage({
                 className="inline-flex items-center gap-2 text-[13px] font-medium tracking-tight text-slate-500 transition-colors hover:text-slate-900"
               >
                 <svg
+                  aria-hidden="true"
                   className="h-4 w-4"
                   fill="none"
                   viewBox="0 0 24 24"
@@ -184,14 +186,14 @@ export function LegalPage({
                     {section.title}
                   </h2>
                   <div className="space-y-6 text-[15px] leading-relaxed text-slate-600 sm:text-[17px]">
-                    {section.paragraphs.map((paragraph, index) => (
-                      <p key={index}>{paragraph}</p>
+                    {section.paragraphs.map((paragraph) => (
+                      <p key={paragraph}>{paragraph}</p>
                     ))}
                   </div>
                   {section.bullets && (
                     <ul className="mt-6 space-y-4 text-[15px] leading-relaxed text-slate-600 sm:text-[17px]">
-                      {section.bullets.map((bullet, index) => (
-                        <li key={index} className="flex gap-4">
+                      {section.bullets.map((bullet) => (
+                        <li key={bullet} className="flex gap-4">
                           <span className="mt-2.5 h-[6px] w-[6px] shrink-0 rounded-full bg-slate-300" />
                           <span>{bullet}</span>
                         </li>
@@ -217,6 +219,7 @@ export function LegalPage({
             }`}
           >
             <svg
+              aria-hidden="true"
               className="h-5 w-5"
               fill="none"
               viewBox="0 0 24 24"
@@ -243,6 +246,7 @@ export function LegalPage({
             }`}
           >
             <svg
+              aria-hidden="true"
               className="h-5 w-5"
               fill="none"
               viewBox="0 0 24 24"

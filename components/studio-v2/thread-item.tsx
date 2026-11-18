@@ -80,7 +80,7 @@ export const ThreadItem = memo(function ThreadItem({
         !isSelected && isPaused && "bg-amber-50/40",
         !isSelected && isHandoff && "bg-red-50/30",
       )}
-      aria-selected={isSelected}
+      aria-current={isSelected ? "true" : undefined}
     >
       {/* Row 1: Name + time */}
       <div className="flex items-center justify-between gap-2">
