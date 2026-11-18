@@ -2,6 +2,7 @@
 
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useConvexAuth, useQuery } from "convex/react";
+import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useTransition } from "react";
 import { api } from "@/convex/_generated/api";
@@ -78,8 +79,14 @@ export function StudioShellV2({ children }: { children: React.ReactNode }) {
             No Shop Access
           </h1>
           <p className="text-sm text-[#888] mb-6">
-            Contact your shop admin to get invited.
+            Add your own shop, or ask your shop admin to invite you.
           </p>
+          <Link
+            href="/shops"
+            className="inline-block mr-3 px-5 py-2 bg-[#2B7F8F] text-white text-sm rounded-lg font-medium hover:bg-[#1F5F6B] transition-colors"
+          >
+            Add a shop
+          </Link>
           <button
             type="button"
             onClick={handleSignOut}

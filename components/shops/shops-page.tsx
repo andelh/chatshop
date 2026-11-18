@@ -455,7 +455,11 @@ export function ShopsPageClient() {
 
           <nav className="flex-1 px-2.5 flex flex-col gap-0.5 overflow-hidden">
             <Link
-              href="/studio-v2"
+              href={
+                selectedShop
+                  ? `/studio-v2?shop=${selectedShop._id}`
+                  : "/studio-v2"
+              }
               className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium text-[#888] hover:bg-[#F0F0EE] hover:text-[#1A1A1A] transition-colors"
             >
               <InboxIcon />
