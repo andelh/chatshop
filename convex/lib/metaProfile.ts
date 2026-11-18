@@ -24,13 +24,21 @@ export async function fetchCustomerName({
 
   try {
     const response = await fetch(url.toString());
-    if (!response.ok) return undefined;
+    if (!response.ok) {
+      // An expired Page token shows up here first (Graph error 190).
+      console.warn(
+        `No ${platform} profile for ${userId}: HTTP ${response.status}`,
+        await response.text().catch(() => ""),
+      );
+      return undefined;
+    }
     const data = await response.json();
     const name = isInstagram
       ? data.name || data.username
       : [data.first_name, data.last_name].filter(Boolean).join(" ");
     return typeof name === "string" && name.trim() ? name.trim() : undefined;
-  } catch {
+  } catch (error) {
+    console.warn(`No ${platform} profile for ${userId}:`, error);
     return undefined;
   }
 }

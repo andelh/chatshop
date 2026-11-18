@@ -188,7 +188,10 @@ export const processPendingMessages = internalAction({
       args,
     );
     if (claim.status !== "claimed") {
-      console.log(`Batch for thread ${args.threadId}: ${claim.status}`);
+      const reason = claim.status === "skipped" ? ` (${claim.reason})` : "";
+      console.log(
+        `Batch for thread ${args.threadId}: ${claim.status}${reason}`,
+      );
       return claim.status;
     }
 
