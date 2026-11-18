@@ -51,5 +51,7 @@ The step 5 brief lists this as optional. It needs the Admin API with `read_order
 
 ## Open questions
 
+- **Proof of Page ownership:** `shops.create` takes the Page ID and Instagram account ID on trust. Webhooks are routed by those IDs, so a shop that claims another business's Page, before that business connects, would receive its DMs. A pasted token for a different Page wouldn't be able to reply, but the messages would still be stored. This is acceptable only while sign-up is allowlisted. The Facebook Login flow above fixes it, because the IDs come from `/me/accounts`. A cheaper interim check is for `create` to call `GET /me?fields=id` with the pasted Page token and require the result to match `metaPageId`.
+- **Fixing credentials:** there's no edit screen for credentials yet. A mistyped token means editing the row in the Convex dashboard.
 - **Model settings:** with self-serve shops, any owner can change the global model and its spend (`requireAnyShopOwner`). Model choice probably needs to become per-shop, or limited to a platform admin, before outside stores join.
 - **Encryption at rest:** tokens are plain fields today. If we encrypt them, the key should live in a Convex env var, with decryption only in internal queries.
