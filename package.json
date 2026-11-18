@@ -66,7 +66,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "concurrently": "^9.2.1",
-    "convex-test": "^0.0.54",
+    "convex-test": "^0.0.72",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^4.1.12"
