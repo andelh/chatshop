@@ -92,6 +92,11 @@ export const metaWebhook = httpAction(async (ctx, request) => {
     appSecret,
   });
   if (!validSignature) {
+    // Logged so a wrong or rotated app secret shows up in the Convex logs
+    // instead of silently dropping every inbound message.
+    console.error(
+      `Rejected ${platform} webhook: X-Hub-Signature-256 does not match the app secret`,
+    );
     return new Response("Invalid signature", { status: 401 });
   }
 

@@ -6,6 +6,9 @@
  * Usage:
  *   node test-batching.js [options]
  *
+ * Requires META_APP_SECRET (or INSTAGRAM_APP_SECRET for --platform=instagram)
+ * to match the Convex deployment: the webhook rejects unsigned requests.
+ *
  * Options:
  *   --platform=messenger|instagram    Platform to test (default: messenger)
  *   --messages=3                      Number of messages to send (default: 3)
@@ -19,6 +22,8 @@
  *   node test-batching.js --platform=instagram              # Test Instagram webhook
  *   node test-batching.js --url=https://ngrok.io/webhooks   # Test deployed version
  */
+
+const { createHmac } = require("node:crypto");
 
 const args = process.argv.slice(2);
 
@@ -141,6 +146,18 @@ function createWebhookPayload(platform, senderId, messageText, messageIndex) {
   }
 }
 
+// Sign the body the way Meta does (X-Hub-Signature-256).
+function signBody(body, platform) {
+  const secret =
+    platform === "instagram"
+      ? (process.env.INSTAGRAM_APP_SECRET ?? process.env.META_APP_SECRET)
+      : process.env.META_APP_SECRET;
+  if (!secret) {
+    throw new Error("Set META_APP_SECRET to sign test webhooks");
+  }
+  return `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`;
+}
+
 // Send webhook request
 async function sendWebhook(url, payload, platform) {
   const endpoint =
@@ -149,12 +166,14 @@ async function sendWebhook(url, payload, platform) {
       : `${url}/api/webhooks/instagram`;
 
   try {
+    const body = JSON.stringify(payload);
     const response = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "X-Hub-Signature-256": signBody(body, platform),
       },
-      body: JSON.stringify(payload),
+      body,
     });
 
     return {
