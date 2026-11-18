@@ -9,7 +9,7 @@ export default function Home() {
       <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-center gap-3 bg-white px-3 py-24 lg:gap-5 lg:px-6 dark:bg-black">
         <Image
           src="/home.svg"
-          alt="A support assistant with a headset, surrounded by Instagram, Messenger and WhatsApp chat icons"
+          alt="A support assistant with a headset, surrounded by Instagram, Facebook and WhatsApp chat icons"
           width={264}
           height={264}
           priority
