@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import type { BusinessHours } from "@/convex/lib/businessHours";
+import { parseBusinessHours } from "@/convex/lib/businessHours";
 import { cn } from "@/lib/utils";
 import {
   type AgentProfile,
@@ -294,7 +294,7 @@ function ShopSettings({ shop }: { shop: Shop }) {
       <div className="px-6 pb-2">
         <BusinessHoursForm
           shopId={shop._id}
-          hours={shop.settings.businessHours as BusinessHours | undefined}
+          hours={parseBusinessHours(shop.settings.businessHours) ?? undefined}
         />
       </div>
 

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { businessHoursError, isWithinBusinessHours } from "./lib/businessHours";
+import {
+  businessHoursError,
+  isWithinBusinessHours,
+  parseBusinessHours,
+} from "./lib/businessHours";
 
 // Monday 2026-11-16.
 const at = (iso: string) => new Date(iso).getTime();
@@ -89,5 +93,33 @@ describe("businessHoursError", () => {
         days: { mon: { open: "9:00", close: "17:00" } },
       }),
     ).toMatch(/HH:MM/);
+  });
+});
+
+describe("parseBusinessHours", () => {
+  it("returns well-formed hours and null for anything else", () => {
+    const hours = {
+      timezone: "America/Port_of_Spain",
+      days: { mon: { open: "09:00", close: "17:00" } },
+    };
+    expect(parseBusinessHours(hours)).toEqual(hours);
+    // Shapes a v.any() field could hold from older code or hand edits.
+    for (const junk of [
+      undefined,
+      null,
+      42,
+      "9-5",
+      [],
+      { timezone: "UTC" },
+      { timezone: "UTC", days: "weekdays" },
+      { timezone: "UTC", days: { mon: "9-5" } },
+      {
+        timezone: "UTC",
+        days: { mon: null, funday: { open: "09:00", close: "10:00" } },
+      },
+      { timezone: 7, days: {} },
+    ]) {
+      expect(parseBusinessHours(junk)).toBeNull();
+    }
   });
 });

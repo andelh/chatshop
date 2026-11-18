@@ -90,24 +90,33 @@ function localTime(
 }
 
 /**
- * Whether the AI may reply at `now`. Stored settings are `v.any()`, so
- * anything unset or unparseable counts as "no restriction": a bad value
- * must never silence the shop.
+ * Stored hours when they're well-formed, else null. Stored settings are
+ * `v.any()`, so the pipeline and the settings UI both read them through this.
  */
-export function isWithinBusinessHours(hours: unknown, now: number): boolean {
-  if (!hours || typeof hours !== "object") return true;
-  const candidate = hours as BusinessHours;
+export function parseBusinessHours(value: unknown): BusinessHours | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as BusinessHours;
   if (
     typeof candidate.timezone !== "string" ||
     !candidate.days ||
     typeof candidate.days !== "object" ||
     businessHoursError(candidate) !== null
   ) {
-    return true;
+    return null;
   }
+  return candidate;
+}
+
+/**
+ * Whether the AI may reply at `now`. Anything unset or unparseable counts as
+ * "no restriction": a bad value must never silence the shop.
+ */
+export function isWithinBusinessHours(hours: unknown, now: number): boolean {
+  const parsed = parseBusinessHours(hours);
+  if (!parsed) return true;
   try {
-    const { day, minutes } = localTime(now, candidate.timezone);
-    const today = candidate.days[day];
+    const { day, minutes } = localTime(now, parsed.timezone);
+    const today = parsed.days[day];
     if (!today) return false;
     const open = minutesOf(today.open) ?? 0;
     const close = minutesOf(today.close) ?? 0;
