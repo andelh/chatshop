@@ -86,6 +86,8 @@ You need Node 22 and pnpm 10 (`corepack enable`).
 
 Shop members can always sign in, even after their email is removed from the list. Anyone else is refused at sign-in.
 
+Membership rows from before the move to Convex Auth hold Better Auth user ids, which match nobody. Re-add those staff as above: list their email, have them sign up again, then link them.
+
 ### Changing the model
 
 Settings → Model picks the provider, model and effort for every shop. A saved setting overrides the code default in `lib/models/config.ts`. To go back to the default:
