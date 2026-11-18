@@ -409,6 +409,24 @@ describe("failure path", () => {
     ]);
   });
 
+  it("hands off with a refusal reason when the model declines", async () => {
+    const t = setupConvex();
+    await createShop(t);
+    const { sent } = stubMeta();
+    generateTextMock.mockResolvedValue({
+      ...modelReply(""),
+      finishReason: "content-filter",
+    });
+
+    const threadId = threadIdOf(await receive(t, "hello?", "m_in_1"));
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    expect(sent.map((m) => m.text)).toEqual([FALLBACK_REPLY]);
+    const { thread } = await threadState(t, threadId);
+    expect(thread?.agentStatus).toBe("handoff");
+    expect(thread?.agentPausedReason).toContain("refusal");
+  });
+
   it("doesn't record a reply Meta rejected", async () => {
     const t = setupConvex();
     await createShop(t);
@@ -667,5 +685,52 @@ describe("signed Meta webhook", () => {
     expect(
       messages.find((m) => m.role === "assistant")?.platformMessageId,
     ).toBe("m_out_unknown");
+  });
+});
+
+describe("model call and retry", () => {
+  it("calls Claude Opus 5.5 at low effort by default", async () => {
+    const t = setupConvex();
+    await createShop(t);
+    stubMeta();
+    generateTextMock.mockResolvedValue(modelReply("Hi!"));
+    await receive(t, "hello", "m_in_1");
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    const call = generateTextMock.mock.calls[0][0];
+    expect((call.model as { modelId: string }).modelId).toBe("claude-opus-5-5");
+    expect(call.providerOptions).toEqual({
+      anthropic: {
+        effort: "low",
+        thinking: { type: "adaptive", display: "summarized" },
+      },
+    });
+  });
+
+  it("retryMessage regenerates from the last customer turn and sends it", async () => {
+    const t = setupConvex();
+    await createShop(t);
+    const { sent } = stubMeta();
+    generateTextMock.mockResolvedValueOnce(modelReply("First answer."));
+    const threadId = threadIdOf(await receive(t, "price?", "m_in_1"));
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    const { messages } = await threadState(t, threadId);
+    const firstReply = messages.find((m) => m.role === "assistant");
+    if (!firstReply) throw new Error("no reply");
+
+    generateTextMock.mockResolvedValueOnce(modelReply("Better answer."));
+    const result = await t.action(internal.scheduledActions.retryMessage, {
+      threadId,
+      messageId: firstReply._id,
+    });
+
+    expect(result.messageIds).toHaveLength(1);
+    expect(sent.map((m) => m.text)).toEqual([
+      "First answer.",
+      "Better answer.",
+    ]);
+    const retryCall = generateTextMock.mock.calls[1][0];
+    expect(retryCall.messages).toEqual([{ role: "user", content: "price?" }]);
   });
 });

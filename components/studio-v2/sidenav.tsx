@@ -18,7 +18,12 @@ const navItems = [
   { id: "analytics", label: "Analytics", icon: BarChart2, href: "#" },
 ];
 
-export function Sidenav({ onSignOut, isSigningOut, userName, userEmail }: SidenavProps) {
+export function Sidenav({
+  onSignOut,
+  isSigningOut,
+  userName,
+  userEmail,
+}: SidenavProps) {
   const initials = userName
     ? userName
         .split(" ")

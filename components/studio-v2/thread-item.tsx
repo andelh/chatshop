@@ -80,7 +80,7 @@ export const ThreadItem = memo(function ThreadItem({
         !isSelected && isPaused && "bg-amber-50/40",
         !isSelected && isHandoff && "bg-red-50/30",
       )}
-      aria-selected={isSelected}
+      aria-current={isSelected ? "true" : undefined}
     >
       {/* Row 1: Name + time */}
       <div className="flex items-center justify-between gap-2">
@@ -115,10 +115,14 @@ export const ThreadItem = memo(function ThreadItem({
       <div className="flex items-center gap-2 mt-0.5">
         <PlatformPill platform={thread.platform} />
         {isHandoff && (
-          <span className="text-[11px] text-red-500 font-medium">· Handoff</span>
+          <span className="text-[11px] text-red-500 font-medium">
+            · Handoff
+          </span>
         )}
         {isPaused && (
-          <span className="text-[11px] text-amber-600 font-medium">· AI paused</span>
+          <span className="text-[11px] text-amber-600 font-medium">
+            · AI paused
+          </span>
         )}
       </div>
     </button>

@@ -1,7 +1,28 @@
+import {
+  type AnthropicLanguageModelOptions,
+  anthropic,
+} from "@ai-sdk/anthropic";
 import { type GoogleGenerativeAIProviderOptions, google } from "@ai-sdk/google";
-import { openai } from "@ai-sdk/openai";
+import { type OpenAIResponsesProviderOptions, openai } from "@ai-sdk/openai";
 import type { LanguageModel } from "ai";
-import type { ModelProvider } from "../../lib/models/config";
+import {
+  ANTHROPIC_EFFORT_LEVELS,
+  type AnthropicEffort,
+  DEFAULT_MODEL_CONFIG,
+  getModelsByProvider,
+  type ModelProvider,
+} from "../../lib/models/config";
+
+/** Provider options as stored in `app_settings.providerOptions`. */
+export interface StoredProviderOptions {
+  anthropicEffort?: string;
+  openaiReasoningEffort?: string;
+  googleThinkingLevel?: string;
+}
+
+type ProviderOptions = NonNullable<
+  Parameters<typeof import("ai").generateText>[0]["providerOptions"]
+>;
 
 /**
  * Factory function to create a model instance based on provider and model ID
@@ -11,6 +32,8 @@ export function createModel(
   modelId: string,
 ): LanguageModel {
   switch (provider) {
+    case "anthropic":
+      return anthropic(modelId);
     case "openai":
       return openai(modelId);
     case "google":
@@ -20,26 +43,60 @@ export function createModel(
   }
 }
 
+function isAnthropicEffort(value: unknown): value is AnthropicEffort {
+  return (ANTHROPIC_EFFORT_LEVELS as readonly unknown[]).includes(value);
+}
+
+type ThreeLevel = "low" | "medium" | "high";
+function isThreeLevel(value: unknown): value is ThreeLevel {
+  return value === "low" || value === "medium" || value === "high";
+}
+
 /**
- * Get provider-specific options for the AI SDK
+ * Provider-specific options for the configured provider only.
+ *
+ * Anthropic: Claude 5.5 models always think adaptively (thinking can't be
+ * disabled); `effort` sets how much. Thinking is summarized so Studio can
+ * show the reasoning.
  */
 export function getProviderOptions(
   provider: ModelProvider,
-  reasoningEffort: "low" | "medium" | "high" = "medium",
-  thinkingLevel: "low" | "medium" | "high" = "high",
-): Record<string, any> {
-  return {
-    openai: {
-      reasoningEffort: reasoningEffort,
-      reasoningSummary: "auto",
-    },
-    google: {
-      thinkingConfig: {
-        thinkingLevel: thinkingLevel,
-        includeThoughts: true,
-      },
-    } satisfies GoogleGenerativeAIProviderOptions,
-  };
+  stored: StoredProviderOptions = {},
+): ProviderOptions {
+  const defaults = DEFAULT_MODEL_CONFIG.providerOptions;
+  switch (provider) {
+    case "anthropic":
+      return {
+        anthropic: {
+          effort: isAnthropicEffort(stored.anthropicEffort)
+            ? stored.anthropicEffort
+            : defaults.anthropicEffort,
+          thinking: { type: "adaptive", display: "summarized" },
+        } satisfies AnthropicLanguageModelOptions,
+      };
+    case "openai":
+      return {
+        openai: {
+          reasoningEffort: isThreeLevel(stored.openaiReasoningEffort)
+            ? stored.openaiReasoningEffort
+            : "medium",
+          reasoningSummary: "auto",
+        } satisfies OpenAIResponsesProviderOptions,
+      };
+    case "google":
+      return {
+        google: {
+          thinkingConfig: {
+            thinkingLevel: isThreeLevel(stored.googleThinkingLevel)
+              ? stored.googleThinkingLevel
+              : "high",
+            includeThoughts: true,
+          },
+        } satisfies GoogleGenerativeAIProviderOptions,
+      };
+    default:
+      return {};
+  }
 }
 
 /**
@@ -49,31 +106,5 @@ export function isValidModel(
   provider: ModelProvider,
   modelId: string,
 ): boolean {
-  const validModels: Record<ModelProvider, string[]> = {
-    openai: [
-      "gpt-5.4-mini",
-      "gpt-5.4",
-      "gpt-5.2",
-      "gpt-5.1",
-      "gpt-5",
-      "gpt-5-mini",
-      "gpt-5-nano",
-      "gpt-4.1",
-      "gpt-4.1-mini",
-      "gpt-4.1-nano",
-      "gpt-4o",
-      "gpt-4o-mini",
-      "o3-mini",
-      "o4-mini",
-    ],
-    google: [
-      "gemini-2.0-flash",
-      "gemini-2.0-flash-lite",
-      "gemini-1.5-pro",
-      "gemini-1.5-flash",
-      "gemini-2.5-pro-exp-03-25",
-    ],
-  };
-
-  return validModels[provider]?.includes(modelId) ?? false;
+  return getModelsByProvider(provider).some((model) => model.id === modelId);
 }

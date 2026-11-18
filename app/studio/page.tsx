@@ -1,10 +1,9 @@
 "use client";
 
-import { Suspense } from "react";
 import { useQuery } from "convex/react";
 import { ArrowRight, MessageSquare } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect } from "react";
+import { Suspense, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { api } from "@/convex/_generated/api";
 

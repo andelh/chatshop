@@ -264,11 +264,11 @@ export function ConversationView({ threadId, thread }: ConversationViewProps) {
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: scroll to the bottom whenever a message arrives
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages?.length]);
 
   const agentStatus = thread?.agentStatus ?? "active";
