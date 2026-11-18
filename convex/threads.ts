@@ -279,11 +279,20 @@ export const internalRequestHandoff = internalMutation({
     reason: v.string(),
   },
   handler: async (ctx, args) => {
+    const thread = await ctx.db.get(args.threadId);
+    if (!thread) throw new Error(`Thread not found: ${args.threadId}`);
     await ctx.db.patch(args.threadId, {
       agentStatus: "handoff",
       agentPausedAt: Date.now(),
       agentPausedReason: args.reason,
     });
+    // Email the team once per handoff, not on every repeat request.
+    if (thread.agentStatus !== "handoff") {
+      await ctx.scheduler.runAfter(0, internal.notifications.sendHandoffEmail, {
+        threadId: args.threadId,
+        reason: args.reason,
+      });
+    }
     return { success: true };
   },
 });

@@ -1,4 +1,7 @@
 import aggregate from "@convex-dev/aggregate/test";
+import authEmail, {
+  registerResendStub,
+} from "@convex-dev/auth/components/email/test";
 import authCore, { sessionIdentity } from "@convex-dev/auth/test";
 import { convexTest } from "convex-test";
 import { components } from "./_generated/api";
@@ -16,6 +19,9 @@ export const modules = import.meta.glob([
 export function setupConvex() {
   const t = convexTest(schema, modules);
   authCore.registerCore(t);
+  // Handoff emails look up member addresses and send through Resend.
+  authEmail.registerEmail(t);
+  registerResendStub(t);
   for (const name of ["messagesByThread", "tokensByThread", "costByThread"]) {
     aggregate.register(t, name);
   }
@@ -42,4 +48,32 @@ export async function signInAs(
     },
   );
   return sessionIdentity(tokens);
+}
+
+/**
+ * Give `userId` a verified primary email in the auth email component, as a
+ * finished sign-up would.
+ */
+export async function addVerifiedEmail(
+  t: ReturnType<typeof setupConvex>,
+  userId: string,
+  email: string,
+): Promise<void> {
+  // convex-test has runInComponent at runtime but doesn't declare it.
+  const testApi = t as unknown as {
+    runInComponent(
+      path: string,
+      handler: (ctx: {
+        db: { insert(table: string, doc: object): Promise<unknown> };
+      }) => Promise<unknown>,
+    ): Promise<unknown>;
+  };
+  await testApi.runInComponent("authEmail", (ctx) =>
+    ctx.db.insert("verifiedEmails", {
+      email,
+      normalizedEmail: email.toLowerCase(),
+      userId,
+      isPrimary: true,
+    }),
+  );
 }

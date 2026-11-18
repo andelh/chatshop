@@ -1,3 +1,4 @@
+import { sentEmails } from "@convex-dev/auth/components/email/test";
 import { generateText } from "ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { internal } from "./_generated/api";
@@ -9,7 +10,7 @@ import {
   HANDOFF_ONLY_REPLY,
   parseAssistantReply,
 } from "./lib/pipeline";
-import { setupConvex } from "./test.setup";
+import { addVerifiedEmail, setupConvex } from "./test.setup";
 
 // The model call is the only thing mocked; everything else runs for real
 // inside convex-test, with Meta's Graph API stubbed via fetch.
@@ -742,6 +743,88 @@ describe("auto-reply and business hours", () => {
       businessHours: { timezone: "Mars/Olympus_Mons", days: {} },
     };
     expect(await replyCount(settings, mondayAt("03:00"))).toBe(1);
+  });
+});
+
+describe("handoff email", () => {
+  async function shopWithMembers(t: ReturnType<typeof setupConvex>) {
+    const shopId = await createShop(t);
+    const { owner, staff } = await t.run(async (ctx) => {
+      const owner = await ctx.db.insert("users", {});
+      const staff = await ctx.db.insert("users", {});
+      await ctx.db.insert("shopMembers", {
+        userId: owner,
+        shopId,
+        role: "owner",
+      });
+      await ctx.db.insert("shopMembers", {
+        userId: staff,
+        shopId,
+        role: "member",
+      });
+      // A Better Auth-era row that matches no account.
+      await ctx.db.insert("shopMembers", {
+        userId: "ba_legacy_id",
+        shopId,
+        role: "member",
+      });
+      return { owner, staff };
+    });
+    await addVerifiedEmail(t, owner, "owner@shop.test");
+    await addVerifiedEmail(t, staff, "staff@shop.test");
+    return shopId;
+  }
+
+  it("emails every member once when the AI hands off", async () => {
+    const t = setupConvex();
+    const shopId = await shopWithMembers(t);
+    stubMeta({ profile: { first_name: "Ana" } });
+    generateTextMock.mockResolvedValue(
+      modelReply(
+        "Let me check with the team. ||HANDOFF|| Trade-in for a Pixel",
+      ),
+    );
+    const threadId = threadIdOf(
+      await receive(t, "can I trade in a Pixel?", "m_in_1"),
+    );
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    const emails = await sentEmails(t);
+    expect(emails.map((e) => e.to[0]).sort()).toEqual([
+      "owner@shop.test",
+      "staff@shop.test",
+    ]);
+    expect(emails[0].subject).toBe("Ana needs a reply on Messenger");
+    expect(emails[0].text).toContain("Trade-in for a Pixel");
+    expect(emails[0].text).toContain(
+      `https://app.example.com/studio-v2/${threadId}?shop=${shopId}`,
+    );
+    expect(emails[0].from).toBe("Chatshop <auth@example.com>");
+
+    // A second handoff request on the same thread doesn't email again.
+    await t.mutation(internal.threads.internalRequestHandoff, {
+      threadId,
+      reason: "again",
+    });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(await sentEmails(t)).toHaveLength(2);
+  });
+
+  it("emails on a failed reply too, and escapes the reason in HTML", async () => {
+    const t = setupConvex();
+    await shopWithMembers(t);
+    stubMeta();
+    generateTextMock.mockRejectedValue(
+      new Error("<script>overloaded</script>"),
+    );
+    await receive(t, "hello", "m_in_1");
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    const emails = await sentEmails(t);
+    expect(emails).toHaveLength(2);
+    expect(emails[0].subject).toBe("A customer needs a reply on Messenger");
+    expect(emails[0].html).toContain("&lt;script&gt;overloaded");
+    expect(emails[0].html).not.toContain("<script>");
   });
 });
 
