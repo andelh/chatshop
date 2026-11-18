@@ -26,6 +26,9 @@ import { Separator } from "@/components/ui/separator";
 import { api } from "@/convex/_generated/api";
 import {
   AI_PROVIDERS,
+  ANTHROPIC_EFFORT_LEVELS,
+  type AnthropicEffort,
+  DEFAULT_MODEL_CONFIG,
   formatPrice,
   type ModelProvider,
 } from "@/lib/models/config";
@@ -40,10 +43,15 @@ export function SettingsPageClient() {
   );
   const updateSettings = useMutation(api.settings.updateModelConfig);
 
-  const [selectedProvider, setSelectedProvider] =
-    useState<ModelProvider>("google");
-  const [selectedModel, setSelectedModel] =
-    useState<string>("gemini-2.0-flash");
+  const [selectedProvider, setSelectedProvider] = useState<ModelProvider>(
+    DEFAULT_MODEL_CONFIG.provider,
+  );
+  const [selectedModel, setSelectedModel] = useState<string>(
+    DEFAULT_MODEL_CONFIG.model,
+  );
+  const [anthropicEffort, setAnthropicEffort] = useState<AnthropicEffort>(
+    DEFAULT_MODEL_CONFIG.providerOptions.anthropicEffort,
+  );
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const hasInitialized = useRef(false);
@@ -52,6 +60,14 @@ export function SettingsPageClient() {
     if (settings && !hasInitialized.current) {
       setSelectedProvider(settings.aiProvider as ModelProvider);
       setSelectedModel(settings.aiModel);
+      const storedEffort = settings.providerOptions?.anthropicEffort;
+      if (
+        (ANTHROPIC_EFFORT_LEVELS as readonly string[]).includes(
+          storedEffort ?? "",
+        )
+      ) {
+        setAnthropicEffort(storedEffort as AnthropicEffort);
+      }
       hasInitialized.current = true;
     }
   }, [settings]);
@@ -71,8 +87,9 @@ export function SettingsPageClient() {
         aiProvider: selectedProvider,
         aiModel: selectedModel,
         providerOptions: {
-          openaiReasoningEffort: "medium",
-          googleThinkingLevel: "high",
+          ...DEFAULT_MODEL_CONFIG.providerOptions,
+          ...settings?.providerOptions,
+          anthropicEffort,
         },
       });
       setSaveSuccess(true);
@@ -212,6 +229,37 @@ export function SettingsPageClient() {
                 </div>
               )}
             </div>
+
+            {selectedProvider === "anthropic" && (
+              <>
+                <Separator />
+                <div className="space-y-3">
+                  <Label className="text-base font-medium">Effort</Label>
+                  <Select
+                    value={anthropicEffort}
+                    onValueChange={(value) =>
+                      setAnthropicEffort(value as AnthropicEffort)
+                    }
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select effort" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ANTHROPIC_EFFORT_LEVELS.map((level) => (
+                        <SelectItem key={level} value={level}>
+                          {level}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-sm text-muted-foreground">
+                    Claude always thinks before replying; effort sets how
+                    much. Lower is faster and cheaper. Start at low and raise
+                    it if replies miss things.
+                  </p>
+                </div>
+              </>
+            )}
 
             <Separator />
 

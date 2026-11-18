@@ -10,10 +10,11 @@ export default defineSchema({
   // Global application settings (single row)
   app_settings: defineTable({
     // AI Model Configuration
-    aiProvider: v.string(), // "openai" | "google"
-    aiModel: v.string(), // e.g., "gpt-5.2", "gemini-2.0-flash"
+    aiProvider: v.string(), // "anthropic" | "openai" | "google"
+    aiModel: v.string(), // e.g., "claude-opus-5-5", "gpt-5.2"
     providerOptions: v.optional(
       v.object({
+        anthropicEffort: v.optional(v.string()), // "low" | "medium" | "high" | "xhigh" | "max"
         openaiReasoningEffort: v.optional(v.string()), // "low" | "medium" | "high"
         googleThinkingLevel: v.optional(v.string()), // "low" | "medium" | "high"
       }),

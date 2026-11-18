@@ -1,7 +1,17 @@
 // Model registry with all supported AI models and their configurations
 // Prices are per 1M tokens in USD (input/output)
 
-export type ModelProvider = "openai" | "google";
+export type ModelProvider = "anthropic" | "openai" | "google";
+
+/** Effort levels for Anthropic models (`providerOptions.anthropic.effort`). */
+export const ANTHROPIC_EFFORT_LEVELS = [
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] as const;
+export type AnthropicEffort = (typeof ANTHROPIC_EFFORT_LEVELS)[number];
 
 export interface AIModel {
   id: string;
@@ -25,6 +35,41 @@ export interface ProviderConfig {
 }
 
 export const AI_PROVIDERS: ProviderConfig[] = [
+  {
+    id: "anthropic",
+    name: "Anthropic",
+    logo: "anthropic",
+    models: [
+      {
+        id: "claude-opus-5-5",
+        name: "Claude Opus 5.5",
+        provider: "anthropic",
+        description:
+          "Anthropic's most capable model. Always thinks adaptively; effort sets how much. Pricing: $4/$20 per 1M tokens.",
+        pricing: { input: 4.0, output: 20.0 },
+        recommended: true,
+        features: ["reasoning", "tools", "high-quality"],
+      },
+      {
+        id: "claude-sonnet-5-5",
+        name: "Claude Sonnet 5.5",
+        provider: "anthropic",
+        description:
+          "Fast, capable model for everyday support. Pricing: $2/$10 per 1M tokens.",
+        pricing: { input: 2.0, output: 10.0 },
+        features: ["reasoning", "tools", "balanced"],
+      },
+      {
+        id: "claude-haiku-5-5",
+        name: "Claude Haiku 5.5",
+        provider: "anthropic",
+        description:
+          "Fastest and cheapest Claude model. Pricing: $0.10/$0.50 per 1M tokens.",
+        pricing: { input: 0.1, output: 0.5 },
+        features: ["fastest", "cost-effective"],
+      },
+    ],
+  },
   {
     id: "openai",
     name: "OpenAI",
@@ -233,13 +278,18 @@ export const AI_PROVIDERS: ProviderConfig[] = [
   },
 ];
 
-// Default model configuration
+/**
+ * Default model configuration. Used when no `app_settings` row exists; an
+ * existing row overrides it (reset with `npx convex run
+ * settings:resetModelConfig`).
+ */
 export const DEFAULT_MODEL_CONFIG = {
-  provider: "google" as ModelProvider,
-  model: "gemini-2.0-flash",
+  provider: "anthropic" as ModelProvider,
+  model: "claude-opus-5-5",
   providerOptions: {
-    openaiReasoningEffort: "medium" as const,
-    googleThinkingLevel: "high" as const,
+    anthropicEffort: "low" as AnthropicEffort,
+    openaiReasoningEffort: "medium",
+    googleThinkingLevel: "high",
   },
 };
 
@@ -278,14 +328,16 @@ export function formatPrice(price: number): string {
   return `$${price.toFixed(2)}`;
 }
 
+/** Used for models missing from the registry, so their cost isn't hidden. */
+const FALLBACK_PRICING = { input: 2.0, output: 10.0 };
+
+/** Cost in USD of a call. The registry above is the single pricing source. */
 export function calculateModelCost(
   modelId: string,
   inputTokens: number,
   outputTokens: number,
 ): number {
-  const model = getModelById(modelId);
-  if (!model) return 0;
-
+  const model = getModelById(modelId) ?? { pricing: FALLBACK_PRICING };
   const inputCost = (inputTokens / 1_000_000) * model.pricing.input;
   const outputCost = (outputTokens / 1_000_000) * model.pricing.output;
   return inputCost + outputCost;

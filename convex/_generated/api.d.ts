@@ -11,8 +11,10 @@
 import type * as aggregates from "../aggregates.js";
 import type * as auth from "../auth.js";
 import type * as http from "../http.js";
+import type * as lib_agent_assistant from "../lib/agent/assistant.js";
+import type * as lib_agent_shopifyTools from "../lib/agent/shopifyTools.js";
+import type * as lib_agent_systemPrompt from "../lib/agent/systemPrompt.js";
 import type * as lib_auth from "../lib/auth.js";
-import type * as lib_cost from "../lib/cost.js";
 import type * as lib_messaging from "../lib/messaging.js";
 import type * as lib_metaGraph from "../lib/metaGraph.js";
 import type * as lib_metaSignature from "../lib/metaSignature.js";
@@ -40,8 +42,10 @@ declare const fullApi: ApiFromModules<{
   aggregates: typeof aggregates;
   auth: typeof auth;
   http: typeof http;
+  "lib/agent/assistant": typeof lib_agent_assistant;
+  "lib/agent/shopifyTools": typeof lib_agent_shopifyTools;
+  "lib/agent/systemPrompt": typeof lib_agent_systemPrompt;
   "lib/auth": typeof lib_auth;
-  "lib/cost": typeof lib_cost;
   "lib/messaging": typeof lib_messaging;
   "lib/metaGraph": typeof lib_metaGraph;
   "lib/metaSignature": typeof lib_metaSignature;

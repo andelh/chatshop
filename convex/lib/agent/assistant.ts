@@ -1,48 +1,63 @@
-import { openai } from "@ai-sdk/openai";
 import { generateText, stepCountIs } from "ai";
-import { createShopifyTools } from "./shopify-tools";
+import type { ModelProvider } from "../../../lib/models/config";
+import { calculateModelCost } from "../../../lib/models/config";
+import { createModel, getProviderOptions, type StoredProviderOptions } from "../model_provider";
+import { createShopifyTools, type StorefrontConfig } from "./shopifyTools";
 import { ISUPPLY_SYSTEM_PROMPT } from "./systemPrompt";
 
-interface StorefrontConfig {
-  endpoint: string;
-  accessToken: string;
-}
-
-interface ChatMessage {
+export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
 }
 
-export const DEFAULT_MODEL = "gpt-5.2";
+/** The global AI settings (`app_settings`). */
+export interface ModelSettings {
+  aiProvider: ModelProvider;
+  aiModel: string;
+  providerOptions?: StoredProviderOptions;
+}
 
-const DEFAULT_PROVIDER_OPTIONS = {
-  openai: {
-    reasoningEffort: "medium",
-    reasoningSummary: "auto" as const,
-  },
-};
-
+/** Run the shop assistant over a conversation that ends on a user turn. */
 export async function runShopAssistant({
   history,
   storefront,
-  model = DEFAULT_MODEL,
+  settings,
 }: {
   history: ChatMessage[];
   storefront: StorefrontConfig;
-  model?: string;
+  settings: ModelSettings;
 }) {
-  const tools = createShopifyTools(storefront);
-
   return await generateText({
-    model: openai(model),
+    model: createModel(settings.aiProvider, settings.aiModel),
     system: ISUPPLY_SYSTEM_PROMPT,
     messages: history,
-    tools,
-    providerOptions: DEFAULT_PROVIDER_OPTIONS,
+    tools: createShopifyTools(storefront),
+    providerOptions: getProviderOptions(
+      settings.aiProvider,
+      settings.providerOptions,
+    ),
     stopWhen: stepCountIs(10),
   });
 }
 
+type AssistantResult = Awaited<ReturnType<typeof runShopAssistant>>;
+
+/** Token usage and cost, stored on the first message of a reply. */
+export function buildAiMetadata(model: string, result: AssistantResult) {
+  const usage = result.totalUsage;
+  const inputTokens = usage?.inputTokens ?? 0;
+  const outputTokens = usage?.outputTokens ?? 0;
+  return {
+    model,
+    totalTokens: usage?.totalTokens ?? 0,
+    reasoningTokens: usage?.reasoningTokens ?? 0,
+    inputTokens,
+    outputTokens,
+    costUsd: calculateModelCost(model, inputTokens, outputTokens),
+  };
+}
+
+// Extract tool calls from AI response steps
 export function extractToolCalls(steps: any[] | undefined) {
   return (
     steps?.flatMap(
@@ -64,6 +79,7 @@ export function extractToolCalls(steps: any[] | undefined) {
   );
 }
 
+// Log AI assistant results
 export function logAssistantResult(result: any) {
   console.log("\n🤖 AI Response Generated:");
   console.log(`Reasoning tokens: ${result.totalUsage?.reasoningTokens || 0}`);
