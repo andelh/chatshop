@@ -162,7 +162,9 @@ function NewChatDialog({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="initial-message">Initial Message (optional)</Label>
+              <Label htmlFor="initial-message">
+                Initial Message (optional)
+              </Label>
               <Textarea
                 id="initial-message"
                 value={initialMessage}

@@ -1,5 +1,10 @@
 import { v } from "convex/values";
-import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import {
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+} from "./_generated/server";
 import { costByThread, messagesByThread, tokensByThread } from "./aggregates";
 import { requireShopAccess } from "./lib/auth";
 

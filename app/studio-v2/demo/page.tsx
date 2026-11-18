@@ -5,7 +5,6 @@
  * Shows the studio-v2 layout with hardcoded mock data.
  */
 
-import { useState } from "react";
 import {
   BarChart2,
   Bot,
@@ -22,6 +21,7 @@ import {
   User,
   Zap,
 } from "lucide-react";
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 
 // ─── Mock data ───────────────────────────────────────────────────────────────
@@ -141,17 +141,32 @@ function formatRelativeTime(timestamp: number): string {
   if (m < 60) return `${m}m`;
   if (h < 24) return `${h}h`;
   if (d === 1) return "Yesterday";
-  return new Date(timestamp).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return new Date(timestamp).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
 }
 
 const platformConfig = {
-  instagram: { label: "Instagram", color: "#E1306C", bg: "#FEF0F5", Icon: Instagram },
-  messenger: { label: "Messenger", color: "#0099FF", bg: "#EFF7FF", Icon: MessageCircle },
-  whatsapp:  { label: "WhatsApp",  color: "#25D366", bg: "#F0FBF4", Icon: Phone },
+  instagram: {
+    label: "Instagram",
+    color: "#E1306C",
+    bg: "#FEF0F5",
+    Icon: Instagram,
+  },
+  messenger: {
+    label: "Messenger",
+    color: "#0099FF",
+    bg: "#EFF7FF",
+    Icon: MessageCircle,
+  },
+  whatsapp: { label: "WhatsApp", color: "#25D366", bg: "#F0FBF4", Icon: Phone },
 } as const;
 
 function PlatformPill({ platform }: { platform: string }) {
-  const cfg = platformConfig[platform as keyof typeof platformConfig] ?? platformConfig.messenger;
+  const cfg =
+    platformConfig[platform as keyof typeof platformConfig] ??
+    platformConfig.messenger;
   return (
     <span
       className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full"
@@ -162,8 +177,19 @@ function PlatformPill({ platform }: { platform: string }) {
   );
 }
 
-function CustomerAvatar({ name, size = "md" }: { name: string; size?: "sm" | "md" }) {
-  const initials = name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
+function CustomerAvatar({
+  name,
+  size = "md",
+}: {
+  name: string;
+  size?: "sm" | "md";
+}) {
+  const initials = name
+    .split(" ")
+    .map((n) => n[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
   const palette = [
     { bg: "#F0ECF8", text: "#7C55C8" },
     { bg: "#EFF7FF", text: "#0099FF" },
@@ -187,15 +213,17 @@ function CustomerAvatar({ name, size = "md" }: { name: string; size?: "sm" | "md
 
 function Sidenav() {
   const items = [
-    { label: "Inbox",      Icon: MessageSquare, active: true },
-    { label: "Stores",     Icon: Store,         active: false },
-    { label: "Automation", Icon: Zap,           active: false },
-    { label: "Analytics",  Icon: BarChart2,     active: false },
+    { label: "Inbox", Icon: MessageSquare, active: true },
+    { label: "Stores", Icon: Store, active: false },
+    { label: "Automation", Icon: Zap, active: false },
+    { label: "Analytics", Icon: BarChart2, active: false },
   ];
   return (
     <aside className="flex flex-col w-[190px] h-full bg-[#FAFAF9] border-r border-[#EDECEA] shrink-0">
       <div className="px-5 pt-6 pb-5 shrink-0">
-        <span className="text-[#2B7F8F] font-bold text-xl tracking-tight">clerkit</span>
+        <span className="text-[#2B7F8F] font-bold text-xl tracking-tight">
+          clerkit
+        </span>
       </div>
       <nav className="flex-1 px-2.5 flex flex-col gap-0.5 overflow-hidden">
         {items.map(({ label, Icon, active }) => (
@@ -208,7 +236,12 @@ function Sidenav() {
                 : "font-medium text-[#888] hover:bg-[#F0F0EE] hover:text-[#1A1A1A]",
             )}
           >
-            <Icon className={cn("h-4 w-4 shrink-0", active ? "text-[#1A1A1A]" : "text-[#CCC]")} />
+            <Icon
+              className={cn(
+                "h-4 w-4 shrink-0",
+                active ? "text-[#1A1A1A]" : "text-[#CCC]",
+              )}
+            />
             {label}
           </div>
         ))}
@@ -220,10 +253,14 @@ function Sidenav() {
         </div>
         <div className="flex items-center gap-2.5 px-3 py-2 rounded-lg cursor-pointer hover:bg-[#F0F0EE] transition-colors">
           <div className="w-6 h-6 rounded-full bg-[#E0ECF0] flex items-center justify-center shrink-0">
-            <span className="text-[10px] font-bold text-[#2B7F8F] leading-none">AH</span>
+            <span className="text-[10px] font-bold text-[#2B7F8F] leading-none">
+              AH
+            </span>
           </div>
           <div className="flex flex-col min-w-0">
-            <span className="text-[#1A1A1A] font-semibold text-xs truncate">Andel H.</span>
+            <span className="text-[#1A1A1A] font-semibold text-xs truncate">
+              Andel H.
+            </span>
             <span className="text-[#AAA] text-[11px]">Admin</span>
           </div>
         </div>
@@ -249,7 +286,8 @@ function ThreadList({
 
   const filtered = threads.filter((t) => {
     if (filter === "unread") return t.unreadCount > 0;
-    if (filter === "paused") return t.agentStatus === "paused" || t.agentStatus === "handoff";
+    if (filter === "paused")
+      return t.agentStatus === "paused" || t.agentStatus === "handoff";
     return true;
   });
 
@@ -272,7 +310,10 @@ function ThreadList({
             {tab}
           </button>
         ))}
-        <button type="button" className="ml-auto p-1.5 text-[#BBB] hover:text-[#555] transition-colors">
+        <button
+          type="button"
+          className="ml-auto p-1.5 text-[#BBB] hover:text-[#555] transition-colors"
+        >
           <Search className="h-[15px] w-[15px]" />
         </button>
       </div>
@@ -287,34 +328,56 @@ function ThreadList({
               className={cn(
                 "w-full text-left px-5 py-4 flex flex-col gap-1.5 transition-colors border-l-2 border-transparent focus:outline-none hover:bg-[#F7F7F5]",
                 selectedId === t.id && "bg-[#F5F5F3] border-l-[#1A1A1A]",
-                t.agentStatus === "paused" && selectedId !== t.id && "bg-amber-50/40",
-                t.agentStatus === "handoff" && selectedId !== t.id && "bg-red-50/30",
+                t.agentStatus === "paused" &&
+                  selectedId !== t.id &&
+                  "bg-amber-50/40",
+                t.agentStatus === "handoff" &&
+                  selectedId !== t.id &&
+                  "bg-red-50/30",
               )}
             >
               <div className="flex items-center justify-between gap-2">
-                <span className={cn("text-[15px] truncate", t.unreadCount > 0 ? "font-bold text-[#1A1A1A]" : "font-semibold text-[#1A1A1A]")}>
+                <span
+                  className={cn(
+                    "text-[15px] truncate",
+                    t.unreadCount > 0
+                      ? "font-bold text-[#1A1A1A]"
+                      : "font-semibold text-[#1A1A1A]",
+                  )}
+                >
                   {t.customerName}
                 </span>
                 <span className="text-[12px] text-[#AAA] whitespace-nowrap shrink-0">
                   {formatRelativeTime(t.lastMessageAt)}
                 </span>
               </div>
-              <span className={cn("text-[13px] truncate", t.unreadCount > 0 ? "font-semibold text-[#1A1A1A]" : "font-medium text-[#666]")}>
+              <span
+                className={cn(
+                  "text-[13px] truncate",
+                  t.unreadCount > 0
+                    ? "font-semibold text-[#1A1A1A]"
+                    : "font-medium text-[#666]",
+                )}
+              >
                 {t.unreadCount > 0
                   ? `${t.unreadCount} new message${t.unreadCount > 1 ? "s" : ""}`
                   : t.agentStatus === "handoff"
-                  ? "Handoff requested"
-                  : t.agentStatus === "paused"
-                  ? "AI paused · Human responding"
-                  : "View conversation"}
+                    ? "Handoff requested"
+                    : t.agentStatus === "paused"
+                      ? "AI paused · Human responding"
+                      : "View conversation"}
               </span>
               <div className="flex items-center gap-2 mt-0.5">
                 <PlatformPill platform={t.platform} />
                 {t.agentStatus === "paused" && (
-                  <span className="text-[11px] text-amber-600 font-medium">· AI paused</span>
+                  <span className="text-[11px] text-amber-600 font-medium">
+                    · AI paused
+                  </span>
                 )}
                 {t.agentStatus === "handoff" && (
-                  <span className="text-[11px] text-red-500 font-medium">· Handoff</span>
+                  <span className="text-[11px] text-red-500 font-medium">
+                    · Handoff
+                  </span>
                 )}
               </div>
             </button>
@@ -339,7 +402,12 @@ function ThreadView({ thread }: { thread: (typeof THREADS)[number] }) {
     if (!replyValue.trim()) return;
     setMessages((prev) => [
       ...prev,
-      { id: `m-${Date.now()}`, role: "human_agent", content: replyValue.trim(), timestamp: Date.now() },
+      {
+        id: `m-${Date.now()}`,
+        role: "human_agent",
+        content: replyValue.trim(),
+        timestamp: Date.now(),
+      },
     ]);
     setReplyValue("");
   };
@@ -371,7 +439,11 @@ function ThreadView({ thread }: { thread: (typeof THREADS)[number] }) {
             onClick={() => setIsPaused((p) => !p)}
             className="h-8 px-3 flex items-center gap-1.5 text-[12px] border border-[#E8E8E6] rounded-lg text-[#555] hover:border-[#1A1A1A] hover:text-[#1A1A1A] transition-colors"
           >
-            {isPaused ? <Play className="h-3 w-3" /> : <Pause className="h-3 w-3" />}
+            {isPaused ? (
+              <Play className="h-3 w-3" />
+            ) : (
+              <Pause className="h-3 w-3" />
+            )}
             {isPaused ? "Resume AI" : "Pause AI"}
           </button>
           <button
@@ -396,7 +468,11 @@ function ThreadView({ thread }: { thread: (typeof THREADS)[number] }) {
                 <div
                   className={cn(
                     "w-7 h-7 rounded-full flex items-center justify-center shrink-0",
-                    isUser ? "bg-[#F0ECF8]" : isAgent ? "bg-green-100" : "bg-[#F5F5F3]",
+                    isUser
+                      ? "bg-[#F0ECF8]"
+                      : isAgent
+                        ? "bg-green-100"
+                        : "bg-[#F5F5F3]",
                   )}
                 >
                   {isUser ? (
@@ -408,7 +484,11 @@ function ThreadView({ thread }: { thread: (typeof THREADS)[number] }) {
                   )}
                 </div>
                 <span className="text-[13px] font-semibold text-[#1A1A1A]">
-                  {isUser ? thread.customerName : isAgent ? "Human Agent" : "Maya AI"}
+                  {isUser
+                    ? thread.customerName
+                    : isAgent
+                      ? "Human Agent"
+                      : "Maya AI"}
                 </span>
                 <span className="text-[12px] text-[#BBB]">
                   {formatRelativeTime(msg.timestamp)}
@@ -438,7 +518,9 @@ function ThreadView({ thread }: { thread: (typeof THREADS)[number] }) {
           className="w-full px-4 pt-3 pb-2 text-[14px] text-[#1A1A1A] placeholder:text-[#BBB] resize-none focus:outline-none"
         />
         <div className="flex items-center justify-between px-3 pb-2.5 pt-1 border-t border-[#F3F2F0]">
-          <span className="text-[12px] text-[#BBB]">Enter to send · Shift+Enter for newline</span>
+          <span className="text-[12px] text-[#BBB]">
+            Enter to send · Shift+Enter for newline
+          </span>
           <button
             type="button"
             onClick={handleSend}
@@ -465,7 +547,11 @@ export default function StudioV2DemoPage() {
       <div className="h-full bg-white rounded-2xl flex flex-row overflow-hidden shadow-sm">
         <Sidenav />
         <div className="w-[340px] h-full border-r border-[#EDECEA] shrink-0">
-          <ThreadList threads={THREADS} selectedId={selectedId} onSelect={setSelectedId} />
+          <ThreadList
+            threads={THREADS}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+          />
         </div>
         <main className="flex-1 min-w-0 h-full overflow-hidden">
           <ThreadView key={selectedId} thread={selectedThread} />

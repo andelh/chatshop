@@ -24,7 +24,9 @@ export function MessageComposer({
   const [isSending, setIsSending] = useState(false);
   const [mode, setMode] = useState<"human" | "customer">("human");
   const sendHumanMessage = useAction(api.messages.sendHumanAgentMessage);
-  const simulateCustomerMessage = useAction(api.messages.simulateCustomerMessage);
+  const simulateCustomerMessage = useAction(
+    api.messages.simulateCustomerMessage,
+  );
 
   const handleSend = async () => {
     if (!message.trim()) return;

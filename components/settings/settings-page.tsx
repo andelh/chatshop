@@ -253,9 +253,9 @@ export function SettingsPageClient() {
                     </SelectContent>
                   </Select>
                   <p className="text-sm text-muted-foreground">
-                    Claude always thinks before replying; effort sets how
-                    much. Lower is faster and cheaper. Start at low and raise
-                    it if replies miss things.
+                    Claude always thinks before replying; effort sets how much.
+                    Lower is faster and cheaper. Start at low and raise it if
+                    replies miss things.
                   </p>
                 </div>
               </>

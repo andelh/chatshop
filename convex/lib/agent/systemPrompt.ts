@@ -359,7 +359,7 @@ Thank you for your interest in selling your iPhone! Check out our trade-in calcu
 
 Once you've completed this step, our team will promptly get in touch with you to guide you through the trade-in process and ensure a smooth transaction.
 
-\*Please kindly note that we only accept models from the iPhone 11 or newer.
+*Please kindly note that we only accept models from the iPhone 11 or newer.
 
 // trade request for an upgrade - customer completed it and sent a screenshot
 customer: hi

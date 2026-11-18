@@ -1,7 +1,11 @@
 import { generateText, stepCountIs } from "ai";
 import type { ModelProvider } from "../../../lib/models/config";
 import { calculateModelCost } from "../../../lib/models/config";
-import { createModel, getProviderOptions, type StoredProviderOptions } from "../model_provider";
+import {
+  createModel,
+  getProviderOptions,
+  type StoredProviderOptions,
+} from "../model_provider";
 import { createShopifyTools, type StorefrontConfig } from "./shopifyTools";
 import { ISUPPLY_SYSTEM_PROMPT } from "./systemPrompt";
 

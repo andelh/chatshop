@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect } from "react";
 import { useQuery } from "convex/react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect } from "react";
 import { api } from "@/convex/_generated/api";
 
 export function ShopRedirector() {

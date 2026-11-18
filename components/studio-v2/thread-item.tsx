@@ -115,10 +115,14 @@ export const ThreadItem = memo(function ThreadItem({
       <div className="flex items-center gap-2 mt-0.5">
         <PlatformPill platform={thread.platform} />
         {isHandoff && (
-          <span className="text-[11px] text-red-500 font-medium">· Handoff</span>
+          <span className="text-[11px] text-red-500 font-medium">
+            · Handoff
+          </span>
         )}
         {isPaused && (
-          <span className="text-[11px] text-amber-600 font-medium">· AI paused</span>
+          <span className="text-[11px] text-amber-600 font-medium">
+            · AI paused
+          </span>
         )}
       </div>
     </button>

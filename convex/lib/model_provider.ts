@@ -1,4 +1,7 @@
-import { type AnthropicLanguageModelOptions, anthropic } from "@ai-sdk/anthropic";
+import {
+  type AnthropicLanguageModelOptions,
+  anthropic,
+} from "@ai-sdk/anthropic";
 import { type GoogleGenerativeAIProviderOptions, google } from "@ai-sdk/google";
 import { type OpenAIResponsesProviderOptions, openai } from "@ai-sdk/openai";
 import type { LanguageModel } from "ai";
