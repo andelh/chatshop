@@ -1,11 +1,11 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, internalQuery } from "./_generated/server";
 
 /**
  * Add a message to the pending queue for batching.
  * This is called by webhooks when receiving user messages.
  */
-export const addPendingMessage = mutation({
+export const addPendingMessage = internalMutation({
   args: {
     threadId: v.id("threads"),
     content: v.string(),
@@ -28,7 +28,7 @@ export const addPendingMessage = mutation({
  * Get all pending messages for a thread, ordered by sequence number.
  * Used by the scheduled batch processor.
  */
-export const getPendingMessages = query({
+export const getPendingMessages = internalQuery({
   args: {
     threadId: v.id("threads"),
   },
@@ -47,7 +47,7 @@ export const getPendingMessages = query({
  * Clear all pending messages for a thread after processing.
  * Called after the AI response is sent.
  */
-export const clearPendingMessages = mutation({
+export const clearPendingMessages = internalMutation({
   args: {
     threadId: v.id("threads"),
   },
@@ -67,7 +67,7 @@ export const clearPendingMessages = mutation({
  * Get the count of pending messages for a thread.
  * Useful for debugging and monitoring.
  */
-export const getPendingCount = query({
+export const getPendingCount = internalQuery({
   args: {
     threadId: v.id("threads"),
   },

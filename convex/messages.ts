@@ -1,7 +1,13 @@
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import {
+  action,
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+} from "./_generated/server";
 import { costByThread, messagesByThread, tokensByThread } from "./aggregates";
 import { requireShopAccess } from "./lib/auth";
 import { sendMetaMessage } from "./lib/messaging";
@@ -47,7 +53,7 @@ export const listByThread = query({
   },
 });
 
-export const getByPlatformMessageId = query({
+export const internalGetByPlatformMessageId = internalQuery({
   args: {
     platformMessageId: v.string(),
   },
@@ -161,7 +167,9 @@ export const sendHumanAgentMessage = action({
       throw new Error(`Thread not found: ${args.threadId}`);
     }
 
-    const shop = await ctx.runQuery(api.shops.get, {
+    // api.threads.get above enforced shop access; the token is read
+    // internally because public shop reads never include credentials.
+    const shop = await ctx.runQuery(internal.shops.internalGet, {
       shopId: thread.shopId,
     });
     if (!shop) {
@@ -222,7 +230,7 @@ export const simulateCustomerMessage = action({
     const existingJobId = thread.scheduledJobId;
     if (existingJobId) {
       try {
-        await ctx.runAction(api.scheduler.cancelScheduledJob, {
+        await ctx.runAction(internal.scheduler.cancelScheduledJob, {
           jobId: existingJobId,
         });
       } catch (error) {
@@ -231,13 +239,13 @@ export const simulateCustomerMessage = action({
     }
 
     const sequenceNumber = await ctx.runMutation(
-      api.threads.getNextSequenceNumber,
+      internal.threads.internalGetNextSequenceNumber,
       {
         threadId: args.threadId,
       },
     );
 
-    await ctx.runMutation(api.pendingMessages.addPendingMessage, {
+    await ctx.runMutation(internal.pendingMessages.addPendingMessage, {
       threadId: args.threadId,
       content: args.content,
       timestamp: Date.now(),
@@ -250,7 +258,7 @@ export const simulateCustomerMessage = action({
         : shop.metaPageId;
 
     const newJobId = await ctx.runAction(
-      api.scheduler.scheduleMessageProcessing,
+      internal.scheduler.scheduleMessageProcessing,
       {
         threadId: args.threadId,
         senderId: thread.platformUserId,
@@ -260,7 +268,7 @@ export const simulateCustomerMessage = action({
       },
     );
 
-    await ctx.runMutation(api.threads.updateScheduledJob, {
+    await ctx.runMutation(internal.threads.internalUpdateScheduledJob, {
       threadId: args.threadId,
       jobId: newJobId,
     });
@@ -335,6 +343,20 @@ export const retryAIResponse = action({
     ctx,
     args,
   ): Promise<{ success: boolean; messageIds: string[] }> => {
+    // api.threads.get enforces shop access for the caller.
+    const thread = await ctx.runQuery(api.threads.get, {
+      threadId: args.threadId,
+    });
+    if (!thread) {
+      throw new Error(`Thread not found: ${args.threadId}`);
+    }
+    const message = await ctx.runQuery(internal.messages.internalGetById, {
+      messageId: args.messageId,
+    });
+    if (!message || message.threadId !== args.threadId) {
+      throw new Error("Message does not belong to this thread");
+    }
+
     // Call the internal action to regenerate the AI response
     const result: { success: boolean; messageIds: string[] } =
       await ctx.runAction(internal.scheduledActions.retryMessage, {
@@ -439,15 +461,13 @@ export const internalAddMessage = internalMutation({
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const backfillMessageAggregates = mutation({
+/**
+ * Maintenance: rebuild aggregates. Internal only; run from the dashboard or
+ * `npx convex run messages:backfillMessageAggregates`.
+ */
+export const backfillMessageAggregates = internalMutation({
   args: {},
   handler: async (ctx) => {
-    // Require authentication — this is a maintenance operation
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-      throw new Error("Unauthenticated");
-    }
-
     const messages = await ctx.db.query("messages").collect();
 
     for (const message of messages) {

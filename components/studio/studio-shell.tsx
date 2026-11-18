@@ -1,6 +1,7 @@
 "use client";
 
-import { useQuery } from "convex/react";
+import { useAuthActions } from "@convex-dev/auth/react";
+import { useConvexAuth, useQuery } from "convex/react";
 import { LogOut, Menu, Settings } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -18,7 +19,6 @@ import {
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { authClient } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
 
 export function StudioShell({ children }: { children: React.ReactNode }) {
@@ -31,7 +31,11 @@ export function StudioShell({ children }: { children: React.ReactNode }) {
   const selectedThreadId = params?.threadId as Id<"threads"> | undefined;
   const shopIdParam = searchParams.get("shop");
 
-  const userShops = useQuery(api.shopMembers.listUserShops);
+  const { isAuthenticated } = useConvexAuth();
+  const userShops = useQuery(
+    api.shopMembers.listUserShops,
+    isAuthenticated ? {} : "skip",
+  );
   const currentShop =
     userShops?.find((s) => s._id === shopIdParam) ?? userShops?.[0];
   const currentShopId = currentShop?._id;
@@ -49,9 +53,10 @@ export function StudioShell({ children }: { children: React.ReactNode }) {
     router.push(url.pathname + "?" + url.searchParams.toString());
   };
 
+  const { signOut } = useAuthActions();
   const handleSignOut = () => {
     startTransition(async () => {
-      await authClient.signOut();
+      await signOut();
       router.push("/auth");
       router.refresh();
     });

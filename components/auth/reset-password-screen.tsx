@@ -1,56 +1,50 @@
 "use client";
 
+import { useCompletePasswordRecovery } from "@convex-dev/auth/methods/email-password/react";
 import { CheckCircle2, Loader2, LockKeyhole } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { authClient } from "@/lib/auth-client";
+import { api } from "@/convex/_generated/api";
+import { authErrorMessage } from "@/lib/auth-errors";
 
 export function ResetPasswordScreen() {
-  const router = useRouter();
   const searchParams = useSearchParams();
-  const token = searchParams.get("token");
+  const emailCode = searchParams.get("code") ?? "";
+  const state = useCompletePasswordRecovery(api.auth, { emailCode });
+  const router = useRouter();
 
   const [password, setPassword] = useState("");
-  const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isPending, setIsPending] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  // A successful reset signs the user in.
+  useEffect(() => {
+    if (state.status === "complete") {
+      router.push("/studio");
+    }
+  }, [state.status, router]);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-
-    if (!token) {
-      setError("Reset token is missing or invalid.");
-      return;
-    }
-
-    setIsPending(true);
-    setError(null);
-    setMessage(null);
-
-    try {
-      const result = await authClient.resetPassword({
-        token,
-        newPassword: password,
-      });
-
-      if (result.error) {
-        throw new Error(result.error.message ?? "Unable to reset password");
-      }
-
-      setMessage("Password updated. Redirecting you back to sign in.");
-      setTimeout(() => {
-        router.push("/auth?mode=signin&reset=1");
-      }, 1200);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to reset password");
-    } finally {
-      setIsPending(false);
+    if (state.status !== "ready") return;
+    setSubmitError(null);
+    const result = await state.completePasswordRecovery({
+      newPassword: password,
+    });
+    if (result.status !== "complete") {
+      setSubmitError(authErrorMessage(result.userError));
     }
   };
+
+  const isPending = state.status === "ready" && state.pending;
+  const message =
+    state.status === "complete" ? "Password updated. Signing you in." : null;
+  const error =
+    state.status === "error" ? authErrorMessage(state.userError) : submitError;
+  const formDisabled = state.status !== "ready" || isPending;
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(22,144,235,0.08),_transparent_32%),linear-gradient(180deg,_#f8fafc_0%,_#f3f4f6_100%)] px-6 py-16">
@@ -68,7 +62,7 @@ export function ResetPasswordScreen() {
             Set a new password
           </h1>
           <p className="text-lg text-muted-foreground">
-            Choose a new password with at least 12 characters.
+            Choose a new password with at least 10 characters.
           </p>
         </div>
 
@@ -82,11 +76,11 @@ export function ResetPasswordScreen() {
               type="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              minLength={12}
+              minLength={10}
               placeholder="New password"
               className="h-16 rounded-[1.7rem] border-border/70 bg-white/75 px-6 text-lg shadow-[0_12px_48px_rgba(15,23,42,0.07)]"
               required
-              disabled={isPending || !!message}
+              disabled={formDisabled}
             />
           </div>
 
@@ -104,7 +98,7 @@ export function ResetPasswordScreen() {
 
           <Button
             type="submit"
-            disabled={isPending || !!message}
+            disabled={formDisabled}
             className="h-16 w-full rounded-[1.7rem] text-lg font-medium shadow-[0_18px_40px_rgba(22,144,235,0.28)]"
           >
             {isPending ? (

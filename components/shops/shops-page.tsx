@@ -1,12 +1,12 @@
 "use client";
 
-import { useMutation, useQuery } from "convex/react";
+import { useAuthActions } from "@convex-dev/auth/react";
+import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { authClient } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
 
 type Shop = {
@@ -363,12 +363,14 @@ function CredentialRow({ label, value }: { label: string; value: string }) {
 
 export function ShopsPageClient() {
   const router = useRouter();
-  const { data: session, isPending: sessionPending } = authClient.useSession();
+  const { isAuthenticated } = useConvexAuth();
+  const { signOut } = useAuthActions();
+  const viewer = useQuery(api.users.viewer, isAuthenticated ? {} : "skip");
   const [isSigningOut, startSignOutTransition] = useTransition();
 
   const shops = useQuery(
     api.shopMembers.listUserShops,
-    sessionPending ? "skip" : undefined,
+    isAuthenticated ? {} : "skip",
   ) as Shop[] | undefined;
 
   const [selectedId, setSelectedId] = useState<Id<"shops"> | null>(null);
@@ -378,7 +380,7 @@ export function ShopsPageClient() {
 
   const handleSignOut = () => {
     startSignOutTransition(async () => {
-      await authClient.signOut();
+      await signOut();
       router.push("/auth");
       router.refresh();
     });
@@ -433,12 +435,12 @@ export function ShopsPageClient() {
             >
               <div className="w-6 h-6 rounded-full bg-[#E0ECF0] flex items-center justify-center shrink-0">
                 <span className="text-[10px] font-bold text-[#2B7F8F] leading-none">
-                  {(session?.user?.name?.[0] ?? session?.user?.email?.[0] ?? "U").toUpperCase()}
+                  {(viewer?.email?.[0] ?? "U").toUpperCase()}
                 </span>
               </div>
               <div className="flex flex-col min-w-0">
                 <span className="text-[#1A1A1A] font-semibold text-xs truncate">
-                  {session?.user?.name ?? session?.user?.email?.split("@")[0] ?? "Account"}
+                  {viewer?.email?.split("@")[0] ?? "Account"}
                 </span>
                 <span className="text-[#AAA] text-[11px]">Sign out</span>
               </div>

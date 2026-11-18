@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery } from "convex/react";
+import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { Check, ChevronLeft, Loader2, Save, Sparkles } from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
@@ -33,7 +33,11 @@ import { cn } from "@/lib/utils";
 
 export function SettingsPageClient() {
   const router = useRouter();
-  const settings = useQuery(api.settings.getSettings);
+  const { isAuthenticated } = useConvexAuth();
+  const settings = useQuery(
+    api.settings.getSettings,
+    isAuthenticated ? {} : "skip",
+  );
   const updateSettings = useMutation(api.settings.updateModelConfig);
 
   const [selectedProvider, setSelectedProvider] =

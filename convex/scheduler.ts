@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { action } from "./_generated/server";
+import { internalAction } from "./_generated/server";
 
 const BATCH_DELAY_MS = 8000; // 1 minute and 10 seconds to collect messages
 // const BATCH_DELAY_MS = 70000; // 1 minute and 10 seconds to collect messages
@@ -10,7 +10,7 @@ const BATCH_DELAY_MS = 8000; // 1 minute and 10 seconds to collect messages
  * Schedule the batch processing job to run after the delay.
  * Returns the job ID as a string for cancellation purposes.
  */
-export const scheduleMessageProcessing = action({
+export const scheduleMessageProcessing = internalAction({
   args: {
     threadId: v.id("threads"),
     senderId: v.string(),
@@ -42,7 +42,7 @@ export const scheduleMessageProcessing = action({
  * Cancel a scheduled job.
  * Used when a new message arrives before the batch window closes.
  */
-export const cancelScheduledJob = action({
+export const cancelScheduledJob = internalAction({
   args: {
     jobId: v.string(),
   },

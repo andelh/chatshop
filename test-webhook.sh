@@ -8,9 +8,14 @@ WEBHOOK_URL="http://localhost:3000/api/webhooks/messenger"
 
 # Test message payload mimicking Meta Messenger format
 # You can modify the message.text field to test different queries
-curl -X POST "$WEBHOOK_URL" \
-  -H "Content-Type: application/json" \
-  -d '{
+# The webhook rejects unsigned requests. META_APP_SECRET must match the
+# secret set on the Convex deployment.
+if [ -z "$META_APP_SECRET" ]; then
+  echo "Set META_APP_SECRET to sign the test payload" >&2
+  exit 1
+fi
+
+PAYLOAD='{
     "object": "page",
     "entry": [
       {
@@ -34,6 +39,13 @@ curl -X POST "$WEBHOOK_URL" \
       }
     ]
   }'
+
+SIGNATURE="sha256=$(printf '%s' "$PAYLOAD" | openssl dgst -sha256 -hmac "$META_APP_SECRET" | sed 's/^.* //')"
+
+curl -X POST "$WEBHOOK_URL" \
+  -H "Content-Type: application/json" \
+  -H "X-Hub-Signature-256: $SIGNATURE" \
+  --data-binary "$PAYLOAD"
 
 echo -e "\n\n✅ Request sent! Check your terminal running 'pnpm dev' to see the logs."
 echo "💡 Look for:"

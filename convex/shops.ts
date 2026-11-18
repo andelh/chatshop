@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { internalQuery, mutation, query } from "./_generated/server";
 import { requireAuth, requireShopAccess } from "./lib/auth";
+import { toPublicShop } from "./lib/publicShop";
 
 /**
  * Internal shop lookup for use by scheduled actions — no user auth required.
@@ -21,11 +22,12 @@ export const get = query({
   args: { shopId: v.id("shops") },
   handler: async (ctx, args) => {
     await requireShopAccess(ctx, args.shopId);
-    return await ctx.db.get(args.shopId);
+    const shop = await ctx.db.get(args.shopId);
+    return shop ? toPublicShop(shop) : null;
   },
 });
 
-export const getByMetaPageId = query({
+export const internalGetByMetaPageId = internalQuery({
   args: { metaPageId: v.string() },
   handler: async (ctx, args) => {
     return await ctx.db
@@ -35,7 +37,7 @@ export const getByMetaPageId = query({
   },
 });
 
-export const getByInstagramAccountId = query({
+export const internalGetByInstagramAccountId = internalQuery({
   args: { instagramAccountId: v.string() },
   handler: async (ctx, args) => {
     return await ctx.db
