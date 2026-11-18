@@ -35,6 +35,8 @@ You need Node 22 and pnpm 10 (`corepack enable`).
    pnpm convex:dev
    ```
 
+   The first push fails until the variables in step 3 are set. Stop it once `.env.local` is written; step 4 starts it again.
+
 3. Fill in the environment variables. The two blocks of [`.env.example`](.env.example) go to different places:
    - The **Next.js** block goes in `.env.local`.
    - The **Convex deployment** block is set on the deployment:
