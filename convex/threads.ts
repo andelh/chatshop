@@ -1,5 +1,7 @@
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 import {
+  internalAction,
   internalMutation,
   internalQuery,
   mutation,
@@ -7,6 +9,7 @@ import {
 } from "./_generated/server";
 import { costByThread, messagesByThread, tokensByThread } from "./aggregates";
 import { requireShopAccess } from "./lib/auth";
+import { fetchCustomerName as fetchNameFromMeta } from "./lib/metaProfile";
 
 export const getOrCreate = mutation({
   args: {
@@ -282,6 +285,50 @@ export const internalRequestHandoff = internalMutation({
       agentPausedReason: args.reason,
     });
     return { success: true };
+  },
+});
+
+/**
+ * Fill in a new thread's customer name from the Graph API. Scheduled by
+ * getOrCreateThread; does nothing if Meta won't share the name.
+ */
+export const fetchCustomerName = internalAction({
+  args: { threadId: v.id("threads") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const thread = await ctx.runQuery(internal.threads.internalGet, {
+      threadId: args.threadId,
+    });
+    if (!thread || thread.customerName) return null;
+    const shop = await ctx.runQuery(internal.shops.internalGet, {
+      shopId: thread.shopId,
+    });
+    if (!shop) return null;
+    const name = await fetchNameFromMeta({
+      platform: thread.platform,
+      userId: thread.platformUserId,
+      accessToken: shop.metaPageAccessToken,
+    });
+    if (name) {
+      await ctx.runMutation(internal.threads.internalSetCustomerName, {
+        threadId: args.threadId,
+        customerName: name,
+      });
+    }
+    return null;
+  },
+});
+
+/** Set the customer name unless staff or an earlier lookup already did. */
+export const internalSetCustomerName = internalMutation({
+  args: { threadId: v.id("threads"), customerName: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const thread = await ctx.db.get(args.threadId);
+    if (thread && !thread.customerName) {
+      await ctx.db.patch(args.threadId, { customerName: args.customerName });
+    }
+    return null;
   },
 });
 

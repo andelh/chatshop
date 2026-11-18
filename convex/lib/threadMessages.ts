@@ -1,3 +1,4 @@
+import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { costByThread, messagesByThread, tokensByThread } from "../aggregates";
@@ -109,5 +110,9 @@ export async function getOrCreateThread(
   });
   const created = await ctx.db.get(threadId);
   if (!created) throw new Error("Failed to create thread");
+  // Look up the customer's name in the background; Studio shows it once set.
+  await ctx.scheduler.runAfter(0, internal.threads.fetchCustomerName, {
+    threadId,
+  });
   return created;
 }

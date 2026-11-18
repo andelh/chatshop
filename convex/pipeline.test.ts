@@ -33,11 +33,17 @@ function modelReply(text: string) {
 }
 
 /** Stub the Graph API. Returns the list of text messages "delivered". */
-function stubMeta(opts: { failSends?: boolean } = {}) {
+function stubMeta(opts: { failSends?: boolean; profile?: object } = {}) {
   const sent: SentMessage[] = [];
   let nextMid = 1;
   const fetchMock = vi.fn(async (_url: unknown, init?: RequestInit) => {
-    const body = JSON.parse(String(init?.body ?? "{}"));
+    if (!init?.body) {
+      // GET /{user-id}?fields=… profile lookup for a new thread.
+      return opts.profile
+        ? Response.json(opts.profile)
+        : Response.json({ error: { message: "no access" } }, { status: 400 });
+    }
+    const body = JSON.parse(String(init.body));
     if (body.sender_action) {
       return Response.json({ recipient_id: body.recipient.id });
     }
@@ -685,6 +691,55 @@ describe("signed Meta webhook", () => {
     expect(
       messages.find((m) => m.role === "assistant")?.platformMessageId,
     ).toBe("m_out_unknown");
+  });
+});
+
+describe("customer names", () => {
+  it("names a new thread from its Messenger profile", async () => {
+    const t = setupConvex();
+    await createShop(t);
+    const { fetchMock } = stubMeta({
+      profile: { first_name: "Ana", last_name: "Lee" },
+    });
+    generateTextMock.mockResolvedValue(modelReply("Hi!"));
+    const threadId = threadIdOf(await receive(t, "hello", "m_in_1"));
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    const { thread } = await threadState(t, threadId);
+    expect(thread?.customerName).toBe("Ana Lee");
+    const lookup = String(
+      fetchMock.mock.calls.find(([, init]) => !init?.body)?.[0],
+    );
+    expect(lookup).toContain(`/${CUSTOMER_ID}?fields=first_name%2Clast_name`);
+    expect(lookup).toContain("access_token=page_token");
+  });
+
+  it("leaves the name unset when Meta won't share it", async () => {
+    const t = setupConvex();
+    await createShop(t);
+    stubMeta();
+    generateTextMock.mockResolvedValue(modelReply("Hi!"));
+    const threadId = threadIdOf(await receive(t, "hello", "m_in_1"));
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    const { thread, messages } = await threadState(t, threadId);
+    expect(thread?.customerName).toBeUndefined();
+    // The reply still went out.
+    expect(messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+  });
+
+  it("never overwrites a name that's already set", async () => {
+    const t = setupConvex();
+    await createShop(t);
+    stubMeta({ profile: { first_name: "Ana" } });
+    generateTextMock.mockResolvedValue(modelReply("Hi!"));
+    const threadId = threadIdOf(await receive(t, "hello", "m_in_1"));
+    await t.run((ctx) => ctx.db.patch(threadId, { customerName: "VIP Ana" }));
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    expect((await threadState(t, threadId)).thread?.customerName).toBe(
+      "VIP Ana",
+    );
   });
 });
 

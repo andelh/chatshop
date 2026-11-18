@@ -17,6 +17,7 @@ import type * as lib_agent_systemPrompt from "../lib/agent/systemPrompt.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_messaging from "../lib/messaging.js";
 import type * as lib_metaGraph from "../lib/metaGraph.js";
+import type * as lib_metaProfile from "../lib/metaProfile.js";
 import type * as lib_metaSignature from "../lib/metaSignature.js";
 import type * as lib_model_provider from "../lib/model_provider.js";
 import type * as lib_pipeline from "../lib/pipeline.js";
@@ -49,6 +50,7 @@ declare const fullApi: ApiFromModules<{
   "lib/auth": typeof lib_auth;
   "lib/messaging": typeof lib_messaging;
   "lib/metaGraph": typeof lib_metaGraph;
+  "lib/metaProfile": typeof lib_metaProfile;
   "lib/metaSignature": typeof lib_metaSignature;
   "lib/model_provider": typeof lib_model_provider;
   "lib/pipeline": typeof lib_pipeline;
