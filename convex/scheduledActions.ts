@@ -11,6 +11,7 @@ import {
   runShopAssistant,
 } from "./lib/agent/assistant";
 import type { StorefrontConfig } from "./lib/agent/shopifyTools";
+import { systemPromptFor } from "./lib/agent/shopPrompt";
 import { sendMetaMessage, sendTypingIndicator } from "./lib/messaging";
 import {
   FALLBACK_REPLY,
@@ -31,6 +32,7 @@ type ReplyTarget = {
   recipientId: string;
   accessToken: string | undefined;
   storefront: StorefrontConfig;
+  systemPrompt: string;
   /** Store the reply without sending it to Meta (Studio simulation). */
   simulateOnly: boolean;
 };
@@ -70,6 +72,7 @@ async function generateAndDeliverReply(
     })),
     storefront: target.storefront,
     settings,
+    system: target.systemPrompt,
   });
   logAssistantResult(result);
   if (result.finishReason === "content-filter") {
@@ -158,7 +161,12 @@ async function loadReplyContext(ctx: ActionCtx, threadId: Id<"threads">) {
     endpoint: shop.shopifyDomain,
     accessToken: shop.shopifyAccessToken,
   };
-  return { thread, accessToken: shop.metaPageAccessToken, storefront };
+  return {
+    thread,
+    accessToken: shop.metaPageAccessToken,
+    storefront,
+    systemPrompt: systemPromptFor(shop.agentProfile),
+  };
 }
 
 /**
@@ -180,7 +188,10 @@ export const processPendingMessages = internalAction({
       args,
     );
     if (claim.status !== "claimed") {
-      console.log(`Batch for thread ${args.threadId}: ${claim.status}`);
+      const reason = claim.status === "skipped" ? ` (${claim.reason})` : "";
+      console.log(
+        `Batch for thread ${args.threadId}: ${claim.status}${reason}`,
+      );
       return claim.status;
     }
 
@@ -207,6 +218,7 @@ export const processPendingMessages = internalAction({
           recipientId: args.senderId,
           accessToken,
           storefront: replyContext.storefront,
+          systemPrompt: replyContext.systemPrompt,
           simulateOnly,
         },
         history,
@@ -314,10 +326,8 @@ export const retryMessage = internalAction({
     ctx,
     args,
   ): Promise<{ success: boolean; messageIds: string[] }> => {
-    const { thread, accessToken, storefront } = await loadReplyContext(
-      ctx,
-      args.threadId,
-    );
+    const { thread, accessToken, storefront, systemPrompt } =
+      await loadReplyContext(ctx, args.threadId);
 
     const recent: Doc<"messages">[] = await ctx.runQuery(
       internal.messages.internalListByThread,
@@ -344,6 +354,7 @@ export const retryMessage = internalAction({
         recipientId: thread.platformUserId,
         accessToken,
         storefront,
+        systemPrompt,
         simulateOnly: false,
       },
       history,

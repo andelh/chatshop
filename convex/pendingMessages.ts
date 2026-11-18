@@ -2,8 +2,10 @@ import { type Infer, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
+import { isWithinBusinessHours } from "./lib/businessHours";
 import { BATCH_DELAY_MS, BATCH_LOCK_STALE_MS } from "./lib/pipeline";
 import {
+  enterHandoff,
   findShopForPage,
   getOrCreateThread,
   insertThreadMessage,
@@ -199,7 +201,14 @@ export type ClaimResult =
   | { status: "claimed"; messageCount: number; lockToken: number }
   | { status: "empty" }
   | { status: "busy" }
-  | { status: "skipped"; reason: "shop_paused" | "thread_paused" };
+  | {
+      status: "skipped";
+      reason:
+        | "shop_paused"
+        | "auto_reply_off"
+        | "outside_hours"
+        | "thread_paused";
+    };
 
 /**
  * Start processing a thread's batch. Moves the pending rows into `messages`
@@ -255,6 +264,16 @@ export const claimBatch = internalMutation({
     const shop = await ctx.db.get(thread.shopId);
     if (shop?.settings.agentPaused) {
       return { status: "skipped", reason: "shop_paused" };
+    }
+    // The messages above stay stored for staff either way.
+    if (shop && !shop.settings.autoReplyEnabled) {
+      return { status: "skipped", reason: "auto_reply_off" };
+    }
+    if (
+      shop &&
+      !isWithinBusinessHours(shop.settings.businessHours, Date.now())
+    ) {
+      return { status: "skipped", reason: "outside_hours" };
     }
     const agentStatus = thread.agentStatus ?? "active";
     if (agentStatus === "paused" || agentStatus === "handoff") {
@@ -314,11 +333,7 @@ export const expireBatch = internalMutation({
     console.error(
       `Batch for thread ${args.threadId} never finished; handing off`,
     );
-    await ctx.db.patch(args.threadId, {
-      agentStatus: "handoff",
-      agentPausedAt: Date.now(),
-      agentPausedReason: "AI reply did not finish",
-    });
+    await enterHandoff(ctx, thread, "AI reply did not finish");
     await releaseBatch(ctx, args);
   },
 });

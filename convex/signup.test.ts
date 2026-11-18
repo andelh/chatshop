@@ -1,7 +1,4 @@
-import authEmail, {
-  registerResendStub,
-  sentEmails,
-} from "@convex-dev/auth/components/email/test";
+import { sentEmails } from "@convex-dev/auth/components/email/test";
 import authPassword from "@convex-dev/auth/components/password/test";
 import { sessionIdentity } from "@convex-dev/auth/test";
 import { ConvexError } from "convex/values";
@@ -17,9 +14,7 @@ const PASSWORD = "a long and unusual passphrase 42";
 
 function setup() {
   const t = setupConvex();
-  authEmail.registerEmail(t);
   authPassword.registerPassword(t);
-  registerResendStub(t);
   // The email component rate-limits per client IP.
   return { t, client: t.withRequestMetadata({ ip: "203.0.113.7" }) };
 }

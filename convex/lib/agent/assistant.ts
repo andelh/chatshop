@@ -9,7 +9,6 @@ import {
   type StoredProviderOptions,
 } from "../model_provider";
 import { createShopifyTools, type StorefrontConfig } from "./shopifyTools";
-import { ISUPPLY_SYSTEM_PROMPT } from "./systemPrompt";
 
 export interface ChatMessage {
   role: "user" | "assistant";
@@ -38,14 +37,17 @@ export async function runShopAssistant({
   history,
   storefront,
   settings,
+  system,
 }: {
   history: ChatMessage[];
   storefront: StorefrontConfig;
   settings: ModelSettings;
+  /** The shop's system prompt (see systemPromptFor). */
+  system: string;
 }) {
   return await generateText({
     model: createModel(settings.aiProvider, settings.aiModel),
-    system: ISUPPLY_SYSTEM_PROMPT,
+    system,
     messages: trimToFirstUserTurn(history),
     tools: createShopifyTools(storefront),
     providerOptions: getProviderOptions(

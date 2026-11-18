@@ -1,7 +1,9 @@
+import { sentEmails } from "@convex-dev/auth/components/email/test";
 import { generateText } from "ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { internal } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
+import { api, internal } from "./_generated/api";
+import type { Doc, Id } from "./_generated/dataModel";
+import { ISUPPLY_SYSTEM_PROMPT } from "./lib/agent/systemPrompt";
 import { sendMetaMessage } from "./lib/messaging";
 import {
   BATCH_DELAY_MS,
@@ -9,7 +11,7 @@ import {
   HANDOFF_ONLY_REPLY,
   parseAssistantReply,
 } from "./lib/pipeline";
-import { setupConvex } from "./test.setup";
+import { addVerifiedEmail, setupConvex, signInAs } from "./test.setup";
 
 // The model call is the only thing mocked; everything else runs for real
 // inside convex-test, with Meta's Graph API stubbed via fetch.
@@ -33,11 +35,17 @@ function modelReply(text: string) {
 }
 
 /** Stub the Graph API. Returns the list of text messages "delivered". */
-function stubMeta(opts: { failSends?: boolean } = {}) {
+function stubMeta(opts: { failSends?: boolean; profile?: object } = {}) {
   const sent: SentMessage[] = [];
   let nextMid = 1;
   const fetchMock = vi.fn(async (_url: unknown, init?: RequestInit) => {
-    const body = JSON.parse(String(init?.body ?? "{}"));
+    if (!init?.body) {
+      // GET /{user-id}?fields=… profile lookup for a new thread.
+      return opts.profile
+        ? Response.json(opts.profile)
+        : Response.json({ error: { message: "no access" } }, { status: 400 });
+    }
+    const body = JSON.parse(String(init.body));
     if (body.sender_action) {
       return Response.json({ recipient_id: body.recipient.id });
     }
@@ -57,14 +65,17 @@ function stubMeta(opts: { failSends?: boolean } = {}) {
   return { sent, fetchMock };
 }
 
-async function createShop(t: ReturnType<typeof setupConvex>) {
+async function createShop(
+  t: ReturnType<typeof setupConvex>,
+  settings: Doc<"shops">["settings"] = { autoReplyEnabled: true },
+) {
   return await t.run(async (ctx) =>
     ctx.db.insert("shops", {
       shopifyDomain: "https://example.myshopify.com/api/graphql.json",
       shopifyAccessToken: "shopify_token",
       metaPageId: PAGE_ID,
       metaPageAccessToken: "page_token",
-      settings: { autoReplyEnabled: true },
+      settings,
       ownerId: "owner_1",
     }),
   );
@@ -296,6 +307,16 @@ describe("batching", () => {
     expect(thread?.agentStatus).toBe("handoff");
     expect(thread?.batchStartedAt).toBeUndefined();
     expect(messages.map((m) => m.content)).toEqual(["hello"]);
+    // Staff are emailed, as for any other handoff.
+    const email = await t.run(async (ctx) =>
+      (await ctx.db.system.query("_scheduled_functions").collect()).find(
+        (job) => job.name.includes("sendHandoffEmail"),
+      ),
+    );
+    expect(email?.args[0]).toMatchObject({
+      threadId,
+      reason: "AI reply did not finish",
+    });
   });
 
   it("drops duplicate deliveries, pending or processed", async () => {
@@ -685,6 +706,229 @@ describe("signed Meta webhook", () => {
     expect(
       messages.find((m) => m.role === "assistant")?.platformMessageId,
     ).toBe("m_out_unknown");
+  });
+});
+
+describe("auto-reply and business hours", () => {
+  // Monday 2026-11-16, UTC.
+  const mondayAt = (hhmm: string) => new Date(`2026-11-16T${hhmm}:00Z`);
+  const weekdayHours = {
+    timezone: "UTC",
+    days: { mon: { open: "09:00", close: "17:00" } },
+  };
+
+  async function replyCount(settings: Doc<"shops">["settings"], at: Date) {
+    vi.setSystemTime(at);
+    const t = setupConvex();
+    await createShop(t, settings);
+    const { sent } = stubMeta();
+    generateTextMock.mockResolvedValue(modelReply("Hi!"));
+    const threadId = threadIdOf(await receive(t, "hello", "m_in_1"));
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    const { messages, thread } = await threadState(t, threadId);
+    // The customer's message is always kept for staff.
+    expect(messages.filter((m) => m.role === "user")).toHaveLength(1);
+    expect(thread?.batchStartedAt).toBeUndefined();
+    return sent.length;
+  }
+
+  it("stores but doesn't reply when auto-reply is off", async () => {
+    expect(
+      await replyCount({ autoReplyEnabled: false }, mondayAt("10:00")),
+    ).toBe(0);
+    expect(generateTextMock).not.toHaveBeenCalled();
+  });
+
+  it("replies only inside business hours", async () => {
+    const settings = { autoReplyEnabled: true, businessHours: weekdayHours };
+    expect(await replyCount(settings, mondayAt("10:00"))).toBe(1);
+    generateTextMock.mockClear();
+    expect(await replyCount(settings, mondayAt("08:59"))).toBe(0);
+    expect(await replyCount(settings, mondayAt("17:00"))).toBe(0);
+    expect(generateTextMock).not.toHaveBeenCalled();
+  });
+
+  it("treats unparseable stored hours as no restriction", async () => {
+    const settings = {
+      autoReplyEnabled: true,
+      businessHours: { timezone: "Mars/Olympus_Mons", days: {} },
+    };
+    expect(await replyCount(settings, mondayAt("03:00"))).toBe(1);
+  });
+});
+
+describe("handoff email", () => {
+  async function shopWithMembers(t: ReturnType<typeof setupConvex>) {
+    const shopId = await createShop(t);
+    const { owner, staff } = await t.run(async (ctx) => {
+      const owner = await ctx.db.insert("users", {});
+      const staff = await ctx.db.insert("users", {});
+      await ctx.db.insert("shopMembers", {
+        userId: owner,
+        shopId,
+        role: "owner",
+      });
+      await ctx.db.insert("shopMembers", {
+        userId: staff,
+        shopId,
+        role: "member",
+      });
+      // A Better Auth-era row that matches no account.
+      await ctx.db.insert("shopMembers", {
+        userId: "ba_legacy_id",
+        shopId,
+        role: "member",
+      });
+      return { owner, staff };
+    });
+    await addVerifiedEmail(t, owner, "owner@shop.test");
+    await addVerifiedEmail(t, staff, "staff@shop.test");
+    return shopId;
+  }
+
+  it("emails every member once when the AI hands off", async () => {
+    const t = setupConvex();
+    const shopId = await shopWithMembers(t);
+    stubMeta({ profile: { first_name: "Ana" } });
+    generateTextMock.mockResolvedValue(
+      modelReply(
+        "Let me check with the team. ||HANDOFF|| Trade-in for a Pixel",
+      ),
+    );
+    const threadId = threadIdOf(
+      await receive(t, "can I trade in a Pixel?", "m_in_1"),
+    );
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    const emails = await sentEmails(t);
+    expect(emails.map((e) => e.to[0]).sort()).toEqual([
+      "owner@shop.test",
+      "staff@shop.test",
+    ]);
+    expect(emails[0].subject).toBe("Ana needs a reply on Messenger");
+    expect(emails[0].text).toContain("Trade-in for a Pixel");
+    expect(emails[0].text).toContain(
+      `https://app.example.com/studio-v2/${threadId}?shop=${shopId}`,
+    );
+    expect(emails[0].from).toBe("Chatshop <auth@example.com>");
+
+    // A second handoff request on the same thread doesn't email again.
+    await t.mutation(internal.threads.internalRequestHandoff, {
+      threadId,
+      reason: "again",
+    });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(await sentEmails(t)).toHaveLength(2);
+  });
+
+  it("emails on a failed reply too, and escapes the reason in HTML", async () => {
+    const t = setupConvex();
+    await shopWithMembers(t);
+    stubMeta();
+    generateTextMock.mockRejectedValue(
+      new Error("<script>overloaded</script>"),
+    );
+    await receive(t, "hello", "m_in_1");
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    const emails = await sentEmails(t);
+    expect(emails).toHaveLength(2);
+    expect(emails[0].subject).toBe("A customer needs a reply on Messenger");
+    expect(emails[0].html).toContain("&lt;script&gt;overloaded");
+    expect(emails[0].html).not.toContain("<script>");
+  });
+});
+
+describe("customer names", () => {
+  it("names a new thread from its Messenger profile", async () => {
+    const t = setupConvex();
+    await createShop(t);
+    const { fetchMock } = stubMeta({
+      profile: { first_name: "Ana", last_name: "Lee" },
+    });
+    generateTextMock.mockResolvedValue(modelReply("Hi!"));
+    const threadId = threadIdOf(await receive(t, "hello", "m_in_1"));
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    const { thread } = await threadState(t, threadId);
+    expect(thread?.customerName).toBe("Ana Lee");
+    const lookup = String(
+      fetchMock.mock.calls.find(([, init]) => !init?.body)?.[0],
+    );
+    expect(lookup).toContain(`/${CUSTOMER_ID}?fields=first_name%2Clast_name`);
+    expect(lookup).toContain("access_token=page_token");
+  });
+
+  it("leaves the name unset when Meta won't share it", async () => {
+    const t = setupConvex();
+    await createShop(t);
+    stubMeta();
+    generateTextMock.mockResolvedValue(modelReply("Hi!"));
+    const threadId = threadIdOf(await receive(t, "hello", "m_in_1"));
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    const { thread, messages } = await threadState(t, threadId);
+    expect(thread?.customerName).toBeUndefined();
+    // The reply still went out.
+    expect(messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+  });
+
+  it("never overwrites a name that's already set", async () => {
+    const t = setupConvex();
+    await createShop(t);
+    stubMeta({ profile: { first_name: "Ana" } });
+    generateTextMock.mockResolvedValue(modelReply("Hi!"));
+    const threadId = threadIdOf(await receive(t, "hello", "m_in_1"));
+    await t.run((ctx) => ctx.db.patch(threadId, { customerName: "VIP Ana" }));
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    expect((await threadState(t, threadId)).thread?.customerName).toBe(
+      "VIP Ana",
+    );
+  });
+});
+
+describe("per-shop system prompt", () => {
+  it("answers as the shop a user created, never as iSupply", async () => {
+    const t = setupConvex();
+    const userId = await t.run((ctx) => ctx.db.insert("users", {}));
+    const owner = t.withIdentity(await signInAs(t, userId));
+    await owner.mutation(api.shops.create, {
+      profile: {
+        storeName: "Acme Outdoors",
+        assistantName: "Sam",
+        policies: "Returns within 30 days.",
+      },
+      shopifyDomain: "https://acme.myshopify.com/api/2025-01/graphql.json",
+      shopifyAccessToken: "storefront_token",
+      metaPageId: PAGE_ID,
+      metaPageAccessToken: "page_token",
+    });
+    stubMeta();
+    generateTextMock.mockResolvedValue(modelReply("Hi!"));
+    await receive(t, "hello", "m_in_1");
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    const system = String(generateTextMock.mock.calls[0][0].system);
+    expect(system).toContain(
+      "You are Sam, part of the customer support team at Acme Outdoors",
+    );
+    expect(system).toContain("Returns within 30 days.");
+    expect(system).toContain("||SPLIT||");
+    expect(system).toContain("||HANDOFF||");
+    expect(system).not.toMatch(/isupply|maya/i);
+  });
+
+  it("keeps the iSupply prompt for a shop with no profile", async () => {
+    const t = setupConvex();
+    await createShop(t);
+    stubMeta();
+    generateTextMock.mockResolvedValue(modelReply("Hi!"));
+    await receive(t, "hello", "m_in_1");
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(generateTextMock.mock.calls[0][0].system).toBe(
+      ISUPPLY_SYSTEM_PROMPT,
+    );
   });
 });
 

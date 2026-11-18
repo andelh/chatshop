@@ -26,8 +26,6 @@ import { cn } from "@/lib/utils";
 
 // ─── Mock data ───────────────────────────────────────────────────────────────
 
-const DEMO_SHOP_ID = "j971661b007fktwgrkh3zxd3p9804eej";
-
 const THREADS = [
   {
     id: "t1",

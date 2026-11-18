@@ -81,10 +81,17 @@ export function StudioShell({ children }: { children: React.ReactNode }) {
         <div className="text-center max-w-md p-8">
           <h1 className="text-2xl font-semibold mb-4">No Shop Access</h1>
           <p className="text-muted-foreground mb-6">
-            You don&apos;t have access to any shops yet. Please contact your
-            shop administrator to get invited.
+            You don&apos;t have access to any shops yet. Add your own shop, or
+            ask your shop administrator to invite you.
           </p>
-          <Button onClick={handleSignOut}>Sign Out</Button>
+          <div className="flex justify-center gap-3">
+            <Button asChild>
+              <Link href="/shops">Add a shop</Link>
+            </Button>
+            <Button variant="outline" onClick={handleSignOut}>
+              Sign Out
+            </Button>
+          </div>
         </div>
       </div>
     );

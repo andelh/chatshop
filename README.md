@@ -15,7 +15,10 @@ Meta webhook → app/api/webhooks/{messenger,instagram} → Convex /webhooks/met
   timer fires → processPendingMessages
     claim the batch → model call with Shopify tools → send each part to Meta
     on ||HANDOFF|| or any failure → hand the thread to a human in Studio
+                                    and email the shop's members
 ```
+
+Messages still arrive and show up in Studio when the AI is paused, auto-reply is off, or the message lands outside the shop's business hours. The AI just doesn't answer them.
 
 When staff reply in Studio, the AI pauses on that thread. If staff reply from Meta's own inbox, the echo also pauses it. Replies sent more than 24h after the customer's last message go out with the `HUMAN_AGENT` tag.
 
@@ -59,18 +62,12 @@ You need Node 22 and pnpm 10 (`corepack enable`).
 
 5. Create your account at <http://localhost:3000/auth>. The email must be in `ALLOWED_SIGNUP_EMAILS`. Open the validation link from the email to finish sign-up.
 
-6. Add a shop. There's no create-shop screen yet, so insert a row in the `shops` table from the Convex dashboard with:
-   - `shopifyDomain`: the Storefront GraphQL endpoint, `https://<store>.myshopify.com/api/<version>/graphql.json`
-   - `shopifyAccessToken`: the Storefront API token
-   - `metaPageId` and `metaPageAccessToken` for Messenger, plus `instagramAccountId` for Instagram
-   - `settings: { autoReplyEnabled: true }`
+6. Add a shop on the **Shops** page (`/shops` → **+ Add shop**). You become its owner. It asks for:
+   - **Assistant:** the store name and the assistant's name, plus an optional voice and the store information the assistant may quote (website, hours, delivery, returns, warranty).
+   - **Shopify:** the Storefront API URL, `https://<store>.myshopify.com/api/<version>/graphql.json`, and a Storefront access token.
+   - **Meta:** the Facebook Page ID and a long-lived Page access token, plus the Instagram account ID if you want Instagram DMs.
 
-   Then make yourself its owner:
-
-   ```bash
-   npx convex run shopMembers:linkUserByEmail \
-     '{"email":"you@example.com","shopId":"<shop id>","role":"owner"}'
-   ```
+   Tokens are entered by hand for now. [docs/shop-onboarding.md](docs/shop-onboarding.md) sketches the planned Facebook Login and Shopify install flows.
 
 7. Point the Meta app's webhooks at `https://<your app>/api/webhooks/messenger` and `/api/webhooks/instagram`. Use the same verify token as `META_WEBHOOK_VERIFY_TOKEN`.
    - Messenger: subscribe to `messages` and `message_echoes`.
@@ -88,9 +85,19 @@ Shop members can always sign in, even after their email is removed from the list
 
 Membership rows from before the move to Convex Auth hold Better Auth user ids, which match nobody. Re-add those staff as above: list their email, have them sign up again, then link them.
 
+### Shop settings
+
+Each shop's settings panel on the Shops page has:
+
+- **AI Agent / Auto-reply:** pausing the agent or turning auto-reply off stops AI replies; messages still land in Studio.
+- **Assistant** (owners only): the store name, assistant name, voice and store information the system prompt is built from. Shops created before this have no profile and keep the original built-in iSupply prompt until an owner saves one.
+- **Business hours:** when set, the AI only replies inside them, in the shop's time zone. Messages outside them wait for staff. Unset means the AI replies at any hour.
+
+When the AI hands a conversation to staff, every shop member gets an email (through Resend, from `SENDER_EMAIL`) with a link to the thread in Studio. It goes to the email each member signed up with.
+
 ### Changing the model
 
-Settings → Model picks the provider, model and effort for every shop. A saved setting overrides the code default in `lib/models/config.ts`. To go back to the default:
+Settings → Model picks the provider, model and effort for every shop. Any shop owner can change it, and the change applies to all shops. A saved setting overrides the code default in `lib/models/config.ts`. To go back to the default:
 
 ```bash
 npx convex run settings:resetModelConfig
@@ -120,7 +127,10 @@ convex/
   webhooks.ts        Meta webhook: signature check, echoes, enqueue
   pendingMessages.ts batching: enqueue, claim, finish
   scheduledActions.ts generate → split → send, handoff on failure
-  lib/agent/         system prompt, Shopify tools, model call
+  notifications.ts   handoff emails to shop members
+  shops.ts           create a shop, assistant profile, settings
+  lib/agent/         system prompts, Shopify tools, model call
+  lib/businessHours.ts business-hours check, shared with the UI
   auth.ts, users.ts  Convex Auth and the sign-in allowlist
 lib/models/config.ts model registry, prices, default model
 ```

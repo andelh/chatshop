@@ -7,13 +7,21 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { parseBusinessHours } from "@/convex/lib/businessHours";
 import { cn } from "@/lib/utils";
+import {
+  type AgentProfile,
+  AssistantProfileForm,
+  BusinessHoursForm,
+  CreateShopForm,
+} from "./shop-forms";
 
 type Shop = {
   _id: Id<"shops">;
   shopifyDomain: string;
   metaPageId: string;
   instagramAccountId?: string;
+  agentProfile?: AgentProfile;
   settings: {
     autoReplyEnabled: boolean;
     agentPaused?: boolean;
@@ -24,6 +32,10 @@ type Shop = {
   role: "owner" | "member";
   membershipId: Id<"shopMembers">;
 };
+
+function shopName(shop: Shop): string {
+  return shop.agentProfile?.storeName ?? shop.shopifyDomain;
+}
 
 function ShopRow({
   shop,
@@ -57,7 +69,7 @@ function ShopRow({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="text-[13px] font-semibold text-[#1A1A1A] truncate">
-              {shop.shopifyDomain}
+              {shopName(shop)}
             </span>
             {shop.role === "owner" && (
               <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-[#2B7F8F] bg-[#E8F4F6] px-1.5 py-0.5 rounded">
@@ -194,12 +206,12 @@ function ShopSettings({ shop }: { shop: Shop }) {
         <div className="flex items-start gap-3">
           <div className="w-10 h-10 rounded-xl bg-[#E8F4F6] flex items-center justify-center shrink-0">
             <span className="text-[#2B7F8F] font-bold text-sm">
-              {shop.shopifyDomain[0]?.toUpperCase()}
+              {shopName(shop)[0]?.toUpperCase()}
             </span>
           </div>
           <div>
             <h2 className="text-[15px] font-bold text-[#1A1A1A]">
-              {shop.shopifyDomain}
+              {shopName(shop)}
             </h2>
             <div className="flex items-center gap-1.5 mt-1">
               <div
@@ -264,6 +276,26 @@ function ShopSettings({ shop }: { shop: Shop }) {
             disabled={togglingReply}
           />
         </SettingRow>
+      </div>
+
+      {shop.role === "owner" && (
+        <>
+          <SectionHeader title="Assistant" />
+          <div className="px-6 pb-2">
+            <AssistantProfileForm
+              shopId={shop._id}
+              profile={shop.agentProfile}
+            />
+          </div>
+        </>
+      )}
+
+      <SectionHeader title="Business hours" />
+      <div className="px-6 pb-2">
+        <BusinessHoursForm
+          shopId={shop._id}
+          hours={parseBusinessHours(shop.settings.businessHours) ?? undefined}
+        />
       </div>
 
       {/* Credentials */}
@@ -375,9 +407,32 @@ export function ShopsPageClient() {
   ) as Shop[] | undefined;
 
   const [selectedId, setSelectedId] = useState<Id<"shops"> | null>(null);
+  const [creating, setCreating] = useState(false);
 
   const selectedShop =
     shops?.find((s) => s._id === selectedId) ?? shops?.[0] ?? null;
+
+  let mainPanel: React.ReactNode;
+  if (creating) {
+    mainPanel = (
+      <CreateShopForm
+        onCreated={(shopId) => {
+          setSelectedId(shopId);
+          setCreating(false);
+        }}
+        onCancel={() => setCreating(false)}
+      />
+    );
+  } else if (selectedShop) {
+    // Keyed so the forms' drafts reset when switching shops.
+    mainPanel = <ShopSettings key={selectedShop._id} shop={selectedShop} />;
+  } else {
+    mainPanel = (
+      <div className="flex-1 flex items-center justify-center">
+        <p className="text-[13px] text-[#CCC]">Select a shop</p>
+      </div>
+    );
+  }
 
   const handleSignOut = () => {
     startSignOutTransition(async () => {
@@ -400,7 +455,11 @@ export function ShopsPageClient() {
 
           <nav className="flex-1 px-2.5 flex flex-col gap-0.5 overflow-hidden">
             <Link
-              href="/studio-v2"
+              href={
+                selectedShop
+                  ? `/studio-v2?shop=${selectedShop._id}`
+                  : "/studio-v2"
+              }
               className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium text-[#888] hover:bg-[#F0F0EE] hover:text-[#1A1A1A] transition-colors"
             >
               <InboxIcon />
@@ -452,7 +511,16 @@ export function ShopsPageClient() {
         {/* ── Shop list ── */}
         <div className="w-[260px] h-full border-r border-[#EDECEA] flex flex-col shrink-0">
           <div className="px-5 pt-6 pb-4 border-b border-[#F0F0EE] shrink-0">
-            <h1 className="text-[15px] font-bold text-[#1A1A1A]">Shops</h1>
+            <div className="flex items-center justify-between">
+              <h1 className="text-[15px] font-bold text-[#1A1A1A]">Shops</h1>
+              <button
+                type="button"
+                onClick={() => setCreating(true)}
+                className="text-[12px] font-semibold text-[#2B7F8F] hover:text-[#1F5F6B]"
+              >
+                + Add shop
+              </button>
+            </div>
             <p className="text-[12px] text-[#AAA] mt-0.5">
               {shops
                 ? `${shops.length} ${shops.length === 1 ? "shop" : "shops"}`
@@ -469,7 +537,7 @@ export function ShopsPageClient() {
               <div className="px-4 py-8 text-center">
                 <p className="text-[13px] text-[#AAA]">No shops yet</p>
                 <p className="text-[12px] text-[#CCC] mt-1">
-                  Ask an owner to invite you
+                  Add one, or ask an owner to invite you
                 </p>
               </div>
             ) : (
@@ -477,10 +545,11 @@ export function ShopsPageClient() {
                 <ShopRow
                   key={shop._id}
                   shop={shop}
-                  isSelected={
-                    selectedShop ? shop._id === selectedShop._id : false
-                  }
-                  onClick={() => setSelectedId(shop._id)}
+                  isSelected={!creating && shop._id === selectedShop?._id}
+                  onClick={() => {
+                    setSelectedId(shop._id);
+                    setCreating(false);
+                  }}
                 />
               ))
             )}
@@ -489,13 +558,7 @@ export function ShopsPageClient() {
 
         {/* ── Settings panel ── */}
         <main className="flex-1 min-w-0 h-full overflow-hidden flex flex-col">
-          {selectedShop ? (
-            <ShopSettings shop={selectedShop} />
-          ) : (
-            <div className="flex-1 flex items-center justify-center">
-              <p className="text-[13px] text-[#CCC]">Select a shop</p>
-            </div>
-          )}
+          {mainPanel}
         </main>
       </div>
     </div>
