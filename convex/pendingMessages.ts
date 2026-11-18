@@ -236,11 +236,17 @@ export const claimBatch = internalMutation({
       return { status: "empty" };
     }
 
+    // Stored order must be conversation order. A message that arrived while
+    // the previous reply was generating is older than that reply, so stamp
+    // it just after the latest stored message.
+    let latest = thread.lastMessageAt;
     for (const row of rows) {
+      const timestamp = Math.max(row.timestamp, latest + 1);
+      latest = timestamp;
       await insertThreadMessage(ctx, args.threadId, {
         role: "user",
         content: row.content,
-        timestamp: row.timestamp,
+        timestamp,
         platformMessageId: row.platformMessageId,
       });
       await ctx.db.delete(row._id);

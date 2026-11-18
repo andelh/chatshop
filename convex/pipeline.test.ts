@@ -2,6 +2,7 @@ import { generateText } from "ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
+import { sendMetaMessage } from "./lib/messaging";
 import {
   BATCH_DELAY_MS,
   FALLBACK_REPLY,
@@ -192,8 +193,10 @@ describe("batching", () => {
     const { sent } = stubMeta();
 
     generateTextMock.mockImplementationOnce(async () => {
-      // Customer sends another message while the first reply is generating.
+      // Customer sends another message while the first reply is generating,
+      // and generation takes a while.
       await receive(t, "also, do you ship?", "m_in_2");
+      vi.setSystemTime(Date.now() + 20_000);
       return modelReply("Hi! It's $799.");
     });
     generateTextMock.mockResolvedValueOnce(modelReply("Yes, island-wide."));
@@ -215,9 +218,19 @@ describe("batching", () => {
       messages.filter((m) => m.role === "user").map((m) => m.content),
     ).toEqual(["price of iPhone 15?", "also, do you ship?"]);
 
-    // The second generation saw the late message in its history.
+    // History is in conversation order: the late message comes after the
+    // reply it arrived during, so the second generation answers it.
+    expect(messages.map((m) => m.content)).toEqual([
+      "price of iPhone 15?",
+      "Hi! It's $799.",
+      "also, do you ship?",
+      "Yes, island-wide.",
+    ]);
     const secondCall = generateTextMock.mock.calls[1][0];
-    expect(JSON.stringify(secondCall.messages)).toContain("also, do you ship?");
+    expect(secondCall.messages?.at(-1)).toEqual({
+      role: "user",
+      content: "also, do you ship?",
+    });
   });
 
   it("defers a run while another holds the batch lock", async () => {
@@ -418,5 +431,43 @@ describe("page echoes", () => {
         ["user", "m_in_1"],
       ]),
     );
+  });
+});
+
+describe("sendMetaMessage", () => {
+  it("tags staff replies outside the 24h window as HUMAN_AGENT", async () => {
+    const { fetchMock } = stubMeta();
+    await sendMetaMessage({
+      recipientId: CUSTOMER_ID,
+      text: "Following up on your order",
+      accessToken: "page_token",
+      humanAgentTag: true,
+    });
+    await sendMetaMessage({
+      recipientId: CUSTOMER_ID,
+      text: "Hi!",
+      accessToken: "page_token",
+    });
+
+    const bodies = fetchMock.mock.calls.map(([, init]) =>
+      JSON.parse(String(init?.body)),
+    );
+    expect(bodies[0]).toMatchObject({
+      messaging_type: "MESSAGE_TAG",
+      tag: "HUMAN_AGENT",
+    });
+    expect(bodies[1]).toMatchObject({ messaging_type: "RESPONSE" });
+    expect(bodies[1].tag).toBeUndefined();
+  });
+
+  it("throws on a Graph error instead of returning it", async () => {
+    stubMeta({ failSends: true });
+    await expect(
+      sendMetaMessage({
+        recipientId: CUSTOMER_ID,
+        text: "Hi!",
+        accessToken: "page_token",
+      }),
+    ).rejects.toThrow(/code 190/);
   });
 });

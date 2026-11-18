@@ -133,6 +133,8 @@ export const metaWebhook = httpAction(async (ctx, request) => {
             customerId,
             platformMessageId: message.mid,
             content: echoContent(message),
+            appId:
+              message.app_id !== undefined ? String(message.app_id) : undefined,
             timestamp:
               typeof event.timestamp === "number" ? event.timestamp : undefined,
           },
@@ -187,6 +189,9 @@ export const recordPageEcho = internalMutation({
     platformMessageId: v.string(),
     content: v.string(),
     timestamp: v.optional(v.number()),
+    // Meta app that sent the message, when the echo includes it. Logged so
+    // automated senders (instant replies, other apps) can be told apart.
+    appId: v.optional(v.string()),
   },
   handler: async (
     ctx,
@@ -205,6 +210,10 @@ export const recordPageEcho = internalMutation({
       platformUserId: args.customerId,
     });
 
+    console.log(
+      `Recording page echo ${args.platformMessageId} as a staff reply ` +
+        `(thread ${thread._id}, app_id ${args.appId ?? "none"})`,
+    );
     const timestamp = args.timestamp ?? Date.now();
     await insertThreadMessage(ctx, thread._id, {
       role: "human_agent",
