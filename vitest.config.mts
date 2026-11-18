@@ -4,6 +4,7 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   resolve: {
     alias: {
+      "@/": fileURLToPath(new URL("./", import.meta.url)),
       // Convex Auth's password component hashes with a WASM module that
       // vitest can't load.
       "password-hash-wasm/argon2id": fileURLToPath(
@@ -13,7 +14,7 @@ export default defineConfig({
   },
   test: {
     environment: "edge-runtime",
-    include: ["convex/**/*.test.ts"],
+    include: ["convex/**/*.test.ts", "components/**/*.test.tsx"],
     server: { deps: { inline: ["convex-test", "@convex-dev/auth"] } },
     // Convex Auth checks a token's issuer against this; any value works in
     // convex-test, which signs tokens itself.
