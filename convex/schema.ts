@@ -82,7 +82,7 @@ export default defineSchema({
     scheduledJobId: v.optional(v.string()),
     pendingSequenceCounter: v.optional(v.number()),
     // Set while a batch is being generated; stops a second run from replying
-    // concurrently. Treated as stale after BATCH_LOCK_STALE_MS.
+    // concurrently. Released by finishBatch, or by expireBatch if the run dies.
     batchStartedAt: v.optional(v.number()),
 
     // Agent status for human-in-the-loop

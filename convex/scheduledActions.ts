@@ -1248,10 +1248,10 @@ export const processPendingMessages = internalAction({
         });
       }
 
-      // Conversation history (last 12 messages), including this batch.
+      // Conversation history: this whole batch plus the 11 messages before it.
       const history: Doc<"messages">[] = await ctx.runQuery(
         internal.messages.internalListByThread,
-        { threadId: args.threadId, limit: 12 },
+        { threadId: args.threadId, limit: 11 + claim.messageCount },
       );
 
       const dbSettings = await ctx.runQuery(
@@ -1366,7 +1366,10 @@ export const processPendingMessages = internalAction({
       });
       throw error;
     } finally {
-      await ctx.runMutation(internal.pendingMessages.finishBatch, args);
+      await ctx.runMutation(internal.pendingMessages.finishBatch, {
+        ...args,
+        lockToken: claim.lockToken,
+      });
     }
   },
 });

@@ -254,6 +254,50 @@ describe("batching", () => {
     expect(pending).toHaveLength(1);
   });
 
+  it("hands off a thread whose run died after claiming its batch", async () => {
+    const t = setupConvex();
+    await createShop(t);
+    stubMeta();
+    const threadId = threadIdOf(await receive(t, "hello", "m_in_1"));
+    const jobArgs = {
+      threadId,
+      senderId: CUSTOMER_ID,
+      pageId: PAGE_ID,
+      platform: "messenger",
+    };
+
+    // The action claims, then dies before calling finishBatch.
+    const claim = await t.mutation(
+      internal.pendingMessages.claimBatch,
+      jobArgs,
+    );
+    if (claim.status !== "claimed") throw new Error(claim.status);
+    const expiry = await t.run(async (ctx) =>
+      (await ctx.db.system.query("_scheduled_functions").collect()).find(
+        (job) => job.name.includes("expireBatch"),
+      ),
+    );
+    expect(expiry?.args[0]).toMatchObject({ lockToken: claim.lockToken });
+
+    // A stale token releases nothing.
+    await t.mutation(internal.pendingMessages.finishBatch, {
+      ...jobArgs,
+      lockToken: claim.lockToken - 1,
+    });
+    expect((await threadState(t, threadId)).thread?.batchStartedAt).toBe(
+      claim.lockToken,
+    );
+
+    await t.mutation(internal.pendingMessages.expireBatch, {
+      ...jobArgs,
+      lockToken: claim.lockToken,
+    });
+    const { thread, messages } = await threadState(t, threadId);
+    expect(thread?.agentStatus).toBe("handoff");
+    expect(thread?.batchStartedAt).toBeUndefined();
+    expect(messages.map((m) => m.content)).toEqual(["hello"]);
+  });
+
   it("drops duplicate deliveries, pending or processed", async () => {
     const t = setupConvex();
     await createShop(t);
@@ -605,6 +649,9 @@ describe("signed Meta webhook", () => {
     generateTextMock.mockResolvedValue(modelReply("Hi!"));
     const threadId = threadIdOf(await receive(t, "hello", "m_in_1"));
     await t.finishAllScheduledFunctions(vi.runAllTimers);
+    const sentAt = (await threadState(t, threadId)).messages.find(
+      (m) => m.role === "assistant",
+    )?.timestamp;
 
     const result = await t.mutation(internal.webhooks.recordPageEcho, {
       platform: "messenger",
@@ -612,7 +659,7 @@ describe("signed Meta webhook", () => {
       customerId: CUSTOMER_ID,
       platformMessageId: "m_out_unknown",
       content: "Hi!",
-      timestamp: Date.now(),
+      timestamp: (sentAt ?? 0) + 1_000,
     });
     expect(result).toBe("ours");
     const { thread, messages } = await threadState(t, threadId);

@@ -6,11 +6,12 @@
 export const BATCH_DELAY_MS = 8_000;
 
 /**
- * A thread's batch lock (threads.batchStartedAt) older than this is treated
- * as abandoned (e.g. the action crashed or timed out) and can be taken over.
- * Convex actions time out after 10 minutes.
+ * If a run still holds its thread's batch lock (threads.batchStartedAt) this
+ * long after claiming, it died without finishing (crash or timeout): the
+ * thread is handed off and the lock released. Longer than the 30-minute
+ * limit for Convex-runtime actions, so the run can't still be sending.
  */
-export const BATCH_LOCK_STALE_MS = 10 * 60_000;
+export const BATCH_LOCK_STALE_MS = 31 * 60_000;
 
 /**
  * Delay before handling a page "echo" webhook. The echo of our own reply can

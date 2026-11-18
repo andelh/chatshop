@@ -21,7 +21,8 @@ import {
  *    batch lock.
  * 3. The action generates and sends the reply, then calls `finishBatch` to
  *    release the lock. Messages that arrived meanwhile are still pending and
- *    have their own job scheduled.
+ *    have their own job scheduled. If the action dies without finishing,
+ *    `expireBatch` hands the thread off and releases the lock.
  */
 
 /** Arguments of scheduledActions.processPendingMessages. */
@@ -33,6 +34,9 @@ const jobArgs = v.object({
   simulateOnly: v.optional(v.boolean()),
 });
 type JobArgs = Infer<typeof jobArgs>;
+
+/** Job arguments plus the claim's lock token (its batchStartedAt). */
+const lockArgs = { ...jobArgs.fields, lockToken: v.number() };
 
 const platformValidator = v.union(
   v.literal("messenger"),
@@ -192,7 +196,7 @@ export const enqueueSimulated = internalMutation({
 });
 
 export type ClaimResult =
-  | { status: "claimed"; messageCount: number }
+  | { status: "claimed"; messageCount: number; lockToken: number }
   | { status: "empty" }
   | { status: "busy" }
   | { status: "skipped"; reason: "shop_paused" | "thread_paused" };
@@ -208,11 +212,7 @@ export const claimBatch = internalMutation({
     const thread = await ctx.db.get(args.threadId);
     if (!thread) throw new Error(`Thread not found: ${args.threadId}`);
 
-    const now = Date.now();
-    const lockHeld =
-      thread.batchStartedAt !== undefined &&
-      now - thread.batchStartedAt < BATCH_LOCK_STALE_MS;
-    if (lockHeld) {
+    if (thread.batchStartedAt !== undefined) {
       // Another run is mid-reply. Try again once it has (probably) finished,
       // unless a newer message has already scheduled a run.
       if (!(await hasPendingJob(ctx, thread))) {
@@ -261,28 +261,64 @@ export const claimBatch = internalMutation({
       return { status: "skipped", reason: "thread_paused" };
     }
 
-    await ctx.db.patch(thread._id, { batchStartedAt: now });
-    return { status: "claimed", messageCount: rows.length };
+    const lockToken = Date.now();
+    await ctx.db.patch(thread._id, { batchStartedAt: lockToken });
+    await ctx.scheduler.runAfter(
+      BATCH_LOCK_STALE_MS,
+      internal.pendingMessages.expireBatch,
+      { ...args, lockToken },
+    );
+    return { status: "claimed", messageCount: rows.length, lockToken };
   },
 });
 
 /**
- * Release the batch lock. Defensive: if rows are pending with no run
- * scheduled for them, schedule one.
+ * Release the batch lock if this claim still holds it. Defensive: if rows are
+ * pending with no run scheduled for them, schedule one.
  */
+async function releaseBatch(
+  ctx: MutationCtx,
+  { lockToken, ...args }: JobArgs & { lockToken: number },
+): Promise<void> {
+  const thread = await ctx.db.get(args.threadId);
+  if (!thread || thread.batchStartedAt !== lockToken) return;
+  await ctx.db.patch(thread._id, { batchStartedAt: undefined });
+
+  const stillPending = await ctx.db
+    .query("pending_messages")
+    .withIndex("by_thread", (q) => q.eq("threadId", args.threadId))
+    .first();
+  if (stillPending && !(await hasPendingJob(ctx, thread))) {
+    await restartBatchTimer(ctx, thread, args);
+  }
+}
+
+/** Called by the batch action when it's done, whether it replied or failed. */
 export const finishBatch = internalMutation({
-  args: jobArgs.fields,
+  args: lockArgs,
+  handler: async (ctx, args): Promise<void> => {
+    await releaseBatch(ctx, args);
+  },
+});
+
+/**
+ * Scheduled by claimBatch. If the claim's lock is still held, the action died
+ * (crash or timeout) after storing the customer's messages but before
+ * replying: hand the thread to a human so they aren't left unanswered.
+ */
+export const expireBatch = internalMutation({
+  args: lockArgs,
   handler: async (ctx, args): Promise<void> => {
     const thread = await ctx.db.get(args.threadId);
-    if (!thread) return;
-    await ctx.db.patch(thread._id, { batchStartedAt: undefined });
-
-    const stillPending = await ctx.db
-      .query("pending_messages")
-      .withIndex("by_thread", (q) => q.eq("threadId", args.threadId))
-      .first();
-    if (stillPending && !(await hasPendingJob(ctx, thread))) {
-      await restartBatchTimer(ctx, thread, args);
-    }
+    if (thread?.batchStartedAt !== args.lockToken) return;
+    console.error(
+      `Batch for thread ${args.threadId} never finished; handing off`,
+    );
+    await ctx.db.patch(args.threadId, {
+      agentStatus: "handoff",
+      agentPausedAt: Date.now(),
+      agentPausedReason: "AI reply did not finish",
+    });
+    await releaseBatch(ctx, args);
   },
 });
