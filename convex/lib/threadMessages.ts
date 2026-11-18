@@ -116,3 +116,25 @@ export async function getOrCreateThread(
   });
   return created;
 }
+
+/**
+ * Hand a thread to the shop's staff. Emails the members only on the
+ * transition into handoff, not on a repeat request.
+ */
+export async function enterHandoff(
+  ctx: MutationCtx,
+  thread: Doc<"threads">,
+  reason: string,
+): Promise<void> {
+  await ctx.db.patch(thread._id, {
+    agentStatus: "handoff",
+    agentPausedAt: Date.now(),
+    agentPausedReason: reason,
+  });
+  if (thread.agentStatus !== "handoff") {
+    await ctx.scheduler.runAfter(0, internal.notifications.sendHandoffEmail, {
+      threadId: thread._id,
+      reason,
+    });
+  }
+}

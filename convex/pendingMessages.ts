@@ -5,6 +5,7 @@ import { internalMutation, type MutationCtx } from "./_generated/server";
 import { isWithinBusinessHours } from "./lib/businessHours";
 import { BATCH_DELAY_MS, BATCH_LOCK_STALE_MS } from "./lib/pipeline";
 import {
+  enterHandoff,
   findShopForPage,
   getOrCreateThread,
   insertThreadMessage,
@@ -332,11 +333,7 @@ export const expireBatch = internalMutation({
     console.error(
       `Batch for thread ${args.threadId} never finished; handing off`,
     );
-    await ctx.db.patch(args.threadId, {
-      agentStatus: "handoff",
-      agentPausedAt: Date.now(),
-      agentPausedReason: "AI reply did not finish",
-    });
+    await enterHandoff(ctx, thread, "AI reply did not finish");
     await releaseBatch(ctx, args);
   },
 });

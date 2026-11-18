@@ -10,6 +10,7 @@ import {
 import { costByThread, messagesByThread, tokensByThread } from "./aggregates";
 import { requireShopAccess } from "./lib/auth";
 import { fetchCustomerName as fetchNameFromMeta } from "./lib/metaProfile";
+import { enterHandoff } from "./lib/threadMessages";
 
 export const getOrCreate = mutation({
   args: {
@@ -281,18 +282,7 @@ export const internalRequestHandoff = internalMutation({
   handler: async (ctx, args) => {
     const thread = await ctx.db.get(args.threadId);
     if (!thread) throw new Error(`Thread not found: ${args.threadId}`);
-    await ctx.db.patch(args.threadId, {
-      agentStatus: "handoff",
-      agentPausedAt: Date.now(),
-      agentPausedReason: args.reason,
-    });
-    // Email the team once per handoff, not on every repeat request.
-    if (thread.agentStatus !== "handoff") {
-      await ctx.scheduler.runAfter(0, internal.notifications.sendHandoffEmail, {
-        threadId: args.threadId,
-        reason: args.reason,
-      });
-    }
+    await enterHandoff(ctx, thread, args.reason);
     return { success: true };
   },
 });

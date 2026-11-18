@@ -307,6 +307,16 @@ describe("batching", () => {
     expect(thread?.agentStatus).toBe("handoff");
     expect(thread?.batchStartedAt).toBeUndefined();
     expect(messages.map((m) => m.content)).toEqual(["hello"]);
+    // Staff are emailed, as for any other handoff.
+    const email = await t.run(async (ctx) =>
+      (await ctx.db.system.query("_scheduled_functions").collect()).find(
+        (job) => job.name.includes("sendHandoffEmail"),
+      ),
+    );
+    expect(email?.args[0]).toMatchObject({
+      threadId,
+      reason: "AI reply did not finish",
+    });
   });
 
   it("drops duplicate deliveries, pending or processed", async () => {

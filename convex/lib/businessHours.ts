@@ -56,7 +56,10 @@ export function businessHoursError(hours: BusinessHours): string | null {
     if (!WEEKDAYS.includes(day as Weekday)) {
       return `Unknown day "${day}"`;
     }
-    if (!value) continue;
+    if (value === undefined) continue;
+    if (!value || typeof value !== "object") {
+      return `${day}: expected opening and closing times`;
+    }
     const open = minutesOf(value.open);
     const close = minutesOf(value.close);
     if (open === null || close === null) {
@@ -100,6 +103,7 @@ export function parseBusinessHours(value: unknown): BusinessHours | null {
     typeof candidate.timezone !== "string" ||
     !candidate.days ||
     typeof candidate.days !== "object" ||
+    Array.isArray(candidate.days) ||
     businessHoursError(candidate) !== null
   ) {
     return null;

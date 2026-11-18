@@ -113,6 +113,8 @@ describe("parseBusinessHours", () => {
       { timezone: "UTC" },
       { timezone: "UTC", days: "weekdays" },
       { timezone: "UTC", days: { mon: "9-5" } },
+      { timezone: "UTC", days: [] },
+      { timezone: "UTC", days: { mon: null } },
       {
         timezone: "UTC",
         days: { mon: null, funday: { open: "09:00", close: "10:00" } },
