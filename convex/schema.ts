@@ -33,6 +33,17 @@ export default defineSchema({
     // Instagram Business Account ID (for IG webhooks)
     instagramAccountId: v.optional(v.string()),
 
+    // Who the assistant is for this shop. Unset only on shops created before
+    // per-shop prompts, which keep the iSupply prompt (shopPrompt.ts).
+    agentProfile: v.optional(
+      v.object({
+        storeName: v.string(),
+        assistantName: v.string(),
+        persona: v.optional(v.string()),
+        policies: v.optional(v.string()),
+      }),
+    ),
+
     settings: v.object({
       autoReplyEnabled: v.boolean(),
       businessHours: v.optional(v.any()),

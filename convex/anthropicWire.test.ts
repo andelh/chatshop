@@ -55,6 +55,7 @@ describe("Anthropic request", () => {
         aiModel: "claude-opus-5-5",
         providerOptions: { anthropicEffort: "low" },
       },
+      system: "You are a test assistant.",
     });
 
     expect(result.text).toBe("Hi there!");
@@ -126,6 +127,7 @@ describe("Anthropic request", () => {
       history: [{ role: "user", content: "what do you sell?" }],
       storefront: STOREFRONT,
       settings: OPUS_LOW,
+      system: "You are a test assistant.",
     });
 
     expect(result.text).toBe("We stock phones!");
@@ -166,6 +168,7 @@ describe("Anthropic request", () => {
       history: [{ role: "user", content: "hi" }],
       storefront: STOREFRONT,
       settings: OPUS_LOW,
+      system: "You are a test assistant.",
     });
     expect(result.finishReason).toBe("content-filter");
   });

@@ -1,8 +1,9 @@
 import { sentEmails } from "@convex-dev/auth/components/email/test";
 import { generateText } from "ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
+import { ISUPPLY_SYSTEM_PROMPT } from "./lib/agent/systemPrompt";
 import { sendMetaMessage } from "./lib/messaging";
 import {
   BATCH_DELAY_MS,
@@ -10,7 +11,7 @@ import {
   HANDOFF_ONLY_REPLY,
   parseAssistantReply,
 } from "./lib/pipeline";
-import { addVerifiedEmail, setupConvex } from "./test.setup";
+import { addVerifiedEmail, setupConvex, signInAs } from "./test.setup";
 
 // The model call is the only thing mocked; everything else runs for real
 // inside convex-test, with Meta's Graph API stubbed via fetch.
@@ -873,6 +874,50 @@ describe("customer names", () => {
 
     expect((await threadState(t, threadId)).thread?.customerName).toBe(
       "VIP Ana",
+    );
+  });
+});
+
+describe("per-shop system prompt", () => {
+  it("answers as the shop a user created, never as iSupply", async () => {
+    const t = setupConvex();
+    const userId = await t.run((ctx) => ctx.db.insert("users", {}));
+    const owner = t.withIdentity(await signInAs(t, userId));
+    await owner.mutation(api.shops.create, {
+      profile: {
+        storeName: "Acme Outdoors",
+        assistantName: "Sam",
+        policies: "Returns within 30 days.",
+      },
+      shopifyDomain: "https://acme.myshopify.com/api/2025-01/graphql.json",
+      shopifyAccessToken: "storefront_token",
+      metaPageId: PAGE_ID,
+      metaPageAccessToken: "page_token",
+    });
+    stubMeta();
+    generateTextMock.mockResolvedValue(modelReply("Hi!"));
+    await receive(t, "hello", "m_in_1");
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    const system = String(generateTextMock.mock.calls[0][0].system);
+    expect(system).toContain(
+      "You are Sam, part of the customer support team at Acme Outdoors",
+    );
+    expect(system).toContain("Returns within 30 days.");
+    expect(system).toContain("||SPLIT||");
+    expect(system).toContain("||HANDOFF||");
+    expect(system).not.toMatch(/isupply|maya/i);
+  });
+
+  it("keeps the iSupply prompt for a shop with no profile", async () => {
+    const t = setupConvex();
+    await createShop(t);
+    stubMeta();
+    generateTextMock.mockResolvedValue(modelReply("Hi!"));
+    await receive(t, "hello", "m_in_1");
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(generateTextMock.mock.calls[0][0].system).toBe(
+      ISUPPLY_SYSTEM_PROMPT,
     );
   });
 });
