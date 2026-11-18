@@ -1,6 +1,11 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
-import { requireAuth, requireShopOwner } from "./lib/auth";
+import { components } from "./_generated/api";
+import { internalMutation, mutation, query } from "./_generated/server";
+import {
+  getOptionalShopAccess,
+  requireAuth,
+  requireShopOwner,
+} from "./lib/auth";
 import { toPublicShop } from "./lib/publicShop";
 
 export const listByUser = query({
@@ -149,22 +154,61 @@ export const checkAccess = query({
     shopId: v.id("shops"),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
+    const access = await getOptionalShopAccess(ctx, args.shopId);
+    if (!access) {
       return { hasAccess: false, role: null };
     }
+    return { hasAccess: true, role: access.role };
+  },
+});
 
-    const membership = await ctx.db
+/**
+ * Bootstrap: give an existing account access to a shop. Internal only, so it
+ * can be run before anyone owns the shop, e.g.
+ *
+ *   npx convex run shopMembers:linkUserByEmail \
+ *     '{"email":"you@example.com","shopId":"<shop id>","role":"owner"}'
+ *
+ * The account must have finished sign-up (validated its email) first.
+ */
+export const linkUserByEmail = internalMutation({
+  args: {
+    email: v.string(),
+    shopId: v.id("shops"),
+    role: v.union(v.literal("owner"), v.literal("member")),
+  },
+  handler: async (ctx, args) => {
+    const shop = await ctx.db.get(args.shopId);
+    if (!shop) {
+      throw new Error(`Shop not found: ${args.shopId}`);
+    }
+
+    const lookup = await ctx.runMutation(
+      components.authEmail.verifiedEmails.lookupEmail,
+      { email: args.email },
+    );
+    if (!lookup.success) {
+      throw new Error(
+        `No account with a verified email ${args.email} (${lookup.userError.error})`,
+      );
+    }
+
+    const existing = await ctx.db
       .query("shopMembers")
       .withIndex("by_user_shop", (q) =>
-        q.eq("userId", identity.subject).eq("shopId", args.shopId),
+        q.eq("userId", lookup.userId).eq("shopId", args.shopId),
       )
       .first();
-
-    if (!membership) {
-      return { hasAccess: false, role: null };
+    if (existing) {
+      await ctx.db.patch(existing._id, { role: args.role });
+      return { membershipId: existing._id, updated: true };
     }
 
-    return { hasAccess: true, role: membership.role };
+    const membershipId = await ctx.db.insert("shopMembers", {
+      shopId: args.shopId,
+      userId: lookup.userId,
+      role: args.role,
+    });
+    return { membershipId, updated: false };
   },
 });

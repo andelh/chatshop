@@ -1,5 +1,6 @@
 "use client";
 
+import { useAuthActions } from "@convex-dev/auth/react";
 import { useQuery } from "convex/react";
 import { LogOut, Menu, Settings } from "lucide-react";
 import Link from "next/link";
@@ -18,7 +19,6 @@ import {
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { authClient } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
 
 export function StudioShell({ children }: { children: React.ReactNode }) {
@@ -49,9 +49,10 @@ export function StudioShell({ children }: { children: React.ReactNode }) {
     router.push(url.pathname + "?" + url.searchParams.toString());
   };
 
+  const { signOut } = useAuthActions();
   const handleSignOut = () => {
     startTransition(async () => {
-      await authClient.signOut();
+      await signOut();
       router.push("/auth");
       router.refresh();
     });

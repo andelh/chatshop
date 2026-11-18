@@ -3,6 +3,10 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export default defineSchema({
+  // Convex Auth users. Emails and passwords live in the Convex Auth
+  // components; this table holds app-specific user fields only.
+  users: defineTable({}),
+
   // Global application settings (single row)
   app_settings: defineTable({
     // AI Model Configuration
@@ -36,7 +40,9 @@ export default defineSchema({
       agentPausedAt: v.optional(v.number()),
       agentPausedReason: v.optional(v.string()),
     }),
-    ownerId: v.string(), // better-auth userId
+    // Legacy: Better Auth user id from before the Convex Auth migration.
+    // Not read anywhere; membership lives in shopMembers.
+    ownerId: v.optional(v.string()),
   })
     .index("by_shopify_domain", ["shopifyDomain"])
     .index("by_meta_page", ["metaPageId"])
@@ -44,7 +50,9 @@ export default defineSchema({
 
   // Shop Members
   shopMembers: defineTable({
-    userId: v.string(), // from better-auth
+    // Convex Auth user id (Id<"users">). Kept as a string so rows written
+    // with Better Auth ids still validate; those rows match nobody.
+    userId: v.string(),
     shopId: v.id("shops"),
     role: v.union(v.literal("owner"), v.literal("member")),
   })

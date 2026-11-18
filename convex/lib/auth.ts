@@ -1,3 +1,4 @@
+import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
@@ -12,12 +13,23 @@ export type ShopAccess = {
 
 type AuthContext = QueryCtx | MutationCtx;
 
+/**
+ * The signed-in user's id, or null. Use this rather than
+ * `identity.subject`: under Convex Auth the subject is not the bare user id.
+ * Ids are returned as strings because `shopMembers.userId` is a string column.
+ */
+export async function getCurrentUserId(
+  ctx: AuthContext,
+): Promise<string | null> {
+  return await getAuthUserId(ctx);
+}
+
 export async function requireAuth(ctx: AuthContext): Promise<string> {
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) {
+  const userId = await getCurrentUserId(ctx);
+  if (!userId) {
     throw new ConvexError("Unauthenticated");
   }
-  return identity.subject;
+  return userId;
 }
 
 export async function requireShopAccess(
@@ -75,15 +87,15 @@ export async function getOptionalShopAccess(
   ctx: AuthContext,
   shopId: Id<"shops">,
 ): Promise<ShopAccess | null> {
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) {
+  const userId = await getCurrentUserId(ctx);
+  if (!userId) {
     return null;
   }
 
   const membership = await ctx.db
     .query("shopMembers")
     .withIndex("by_user_shop", (q) =>
-      q.eq("userId", identity.subject).eq("shopId", shopId),
+      q.eq("userId", userId).eq("shopId", shopId),
     )
     .first();
 
@@ -92,7 +104,7 @@ export async function getOptionalShopAccess(
   }
 
   return {
-    userId: identity.subject,
+    userId,
     role: membership.role,
     membershipId: membership._id,
   };
@@ -101,14 +113,14 @@ export async function getOptionalShopAccess(
 export async function getUserShops(
   ctx: QueryCtx,
 ): Promise<Array<{ shopId: Id<"shops">; role: ShopRole }>> {
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) {
+  const userId = await getCurrentUserId(ctx);
+  if (!userId) {
     return [];
   }
 
   const memberships = await ctx.db
     .query("shopMembers")
-    .withIndex("by_user", (q) => q.eq("userId", identity.subject))
+    .withIndex("by_user", (q) => q.eq("userId", userId))
     .collect();
 
   return memberships.map((m) => ({

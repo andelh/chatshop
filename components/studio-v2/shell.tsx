@@ -1,11 +1,11 @@
 "use client";
 
-import { useQuery } from "convex/react";
+import { useAuthActions } from "@convex-dev/auth/react";
+import { useConvexAuth, useQuery } from "convex/react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useTransition } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { authClient } from "@/lib/auth-client";
 import { Sidenav } from "./sidenav";
 import { ThreadList } from "./thread-list";
 
@@ -18,16 +18,17 @@ export function StudioShellV2({ children }: { children: React.ReactNode }) {
   const selectedThreadId = params?.threadId as Id<"threads"> | undefined;
   const shopIdParam = searchParams.get("shop");
 
-  // Wait for the client session to resolve before firing Convex queries.
-  // Without this, queries fire unauthenticated during the hydration gap
-  // when initialToken is null (e.g. Convex unreachable on server render).
-  const { data: session, isPending: sessionPending } = authClient.useSession();
-  const userName = session?.user?.name ?? undefined;
-  const userEmail = session?.user?.email ?? undefined;
+  // Wait until the client is authenticated before firing queries that
+  // require auth; otherwise they throw during the hydration gap.
+  const { isAuthenticated } = useConvexAuth();
+  const { signOut } = useAuthActions();
+  const viewer = useQuery(api.users.viewer, isAuthenticated ? {} : "skip");
+  const userEmail = viewer?.email ?? undefined;
+  const userName = userEmail?.split("@")[0];
 
   const userShops = useQuery(
     api.shopMembers.listUserShops,
-    sessionPending ? "skip" : undefined,
+    isAuthenticated ? {} : "skip",
   );
   const currentShop =
     userShops?.find((s) => s._id === shopIdParam) ?? userShops?.[0];
@@ -50,7 +51,7 @@ export function StudioShellV2({ children }: { children: React.ReactNode }) {
 
   const handleSignOut = () => {
     startTransition(async () => {
-      await authClient.signOut();
+      await signOut();
       router.push("/auth");
       router.refresh();
     });

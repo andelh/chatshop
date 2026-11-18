@@ -1,9 +1,9 @@
 import { redirect } from "next/navigation";
 import { SettingsPageClient } from "@/components/settings/settings-page";
-import { isAuthenticated } from "@/lib/auth-server";
+import { isAuthenticatedNextjs } from "@/lib/convex-auth";
 
 export default async function SettingsPage() {
-  if (!(await isAuthenticated())) {
+  if (!(await isAuthenticatedNextjs())) {
     redirect("/auth");
   }
 

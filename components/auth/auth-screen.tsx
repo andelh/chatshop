@@ -1,13 +1,18 @@
 "use client";
 
+import {
+  useSignInWithEmailPassword,
+  useSignUpWithEmailPassword,
+  useStartPasswordRecovery,
+} from "@convex-dev/auth/methods/email-password/react";
 import { Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { authClient } from "@/lib/auth-client";
-import { cn } from "@/lib/utils";
+import { api } from "@/convex/_generated/api";
+import { authErrorMessage } from "@/lib/auth-errors";
 
 type Mode = "signin" | "signup" | "forgot";
 
@@ -38,21 +43,21 @@ export function AuthScreen() {
   const searchParams = useSearchParams();
 
   const mode = (searchParams.get("mode") as Mode | null) ?? "signin";
-  const verified = searchParams.get("verified") === "1";
-  const reset = searchParams.get("reset") === "1";
 
-  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [message, setMessage] = useState<string | null>(
-    verified
-      ? "Email verified. You can sign in now."
-      : reset
-        ? "Password updated. Sign in with your new password."
-        : null,
-  );
+  const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isPending, setIsPending] = useState(false);
+
+  const { signIn, pending: signInPending } = useSignInWithEmailPassword(
+    api.auth,
+  );
+  const { signUp, pending: signUpPending } = useSignUpWithEmailPassword(
+    api.auth,
+  );
+  const { startPasswordRecovery, pending: recoveryPending } =
+    useStartPasswordRecovery(api.auth);
+  const isPending = signInPending || signUpPending || recoveryPending;
 
   const title = useMemo(() => {
     if (mode === "signup") return "Create your account";
@@ -67,81 +72,47 @@ export function AuthScreen() {
     return "Log in with your email and password to continue.";
   }, [mode]);
 
-  const baseUrl =
-    typeof window === "undefined"
-      ? ""
-      : (process.env.NEXT_PUBLIC_SITE_URL ?? window.location.origin);
-
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setIsPending(true);
     setError(null);
     setMessage(null);
+    const trimmedEmail = email.trim();
 
-    try {
-      if (mode === "signup") {
-        const result = await authClient.signUp.email({
-          name: name.trim(),
-          email: email.trim(),
-          password,
-          callbackURL: `${baseUrl}/studio`,
-        });
-
-        if (result.error) {
-          throw new Error(result.error.message ?? "Unable to create account");
-        }
-
-        if (result.data?.token) {
-          router.push("/studio");
-          router.refresh();
-          return;
-        }
-
-        setMessage(
-          "Check your email for the verification link. If email delivery is not configured yet, the link is logged in the server console.",
-        );
+    if (mode === "signup") {
+      const result = await signUp({ email: trimmedEmail, password });
+      if (!result.success) {
+        setError(authErrorMessage(result.userError));
         return;
       }
-
-      if (mode === "forgot") {
-        const result = await authClient.requestPasswordReset({
-          email: email.trim(),
-          redirectTo: `${baseUrl}/auth/reset-password`,
-        });
-
-        if (result.error) {
-          throw new Error(
-            result.error.message ?? "Unable to request password reset",
-          );
-        }
-
-        setMessage(
-          "If that email exists, a reset link has been sent. In local development without email delivery, the link is logged in the server console.",
-        );
-        return;
-      }
-
-      const result = await authClient.signIn.email({
-        email: email.trim(),
-        password,
-        callbackURL: `${baseUrl}/studio`,
-      });
-
-      if (result.error) {
-        throw new Error(result.error.message ?? "Unable to sign in");
-      }
-
-      router.push("/studio");
-      router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Authentication failed");
-    } finally {
-      setIsPending(false);
+      setMessage(
+        "Check your email for a link to finish signing up. Open it in this browser.",
+      );
+      return;
     }
+
+    if (mode === "forgot") {
+      const result = await startPasswordRecovery({ email: trimmedEmail });
+      if (!result.success && result.userError.error !== "EMAIL_NOT_FOUND") {
+        setError(authErrorMessage(result.userError));
+        return;
+      }
+      // Same message whether or not the account exists.
+      setMessage(
+        "If that email has an account, we’ve sent a reset link. Open it in this browser within 10 minutes.",
+      );
+      return;
+    }
+
+    const result = await signIn({ email: trimmedEmail, password });
+    if (result.status !== "complete") {
+      setError(authErrorMessage(result.userError));
+      return;
+    }
+    router.push("/studio");
+    router.refresh();
   };
 
   const showPassword = mode !== "forgot";
-  const showName = mode === "signup";
 
   return (
     <main className="flex min-h-[100dvh] flex-col bg-white text-black font-sans selection:bg-[#E5E5E5] selection:text-black">
@@ -162,20 +133,6 @@ export function AuthScreen() {
           </div>
 
           <form onSubmit={handleSubmit} className="w-full space-y-4">
-            {showName && (
-              <div>
-                <Input
-                  id="name"
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  placeholder="Full name"
-                  className="h-[52px] w-full rounded-full border border-[#E5E5E5] bg-[#F9F9F9] px-5 text-[15px] sm:text-[16px] text-black shadow-none transition-colors placeholder:text-[#A1A1AA] focus-visible:border-black focus-visible:bg-white focus-visible:ring-0"
-                  required
-                  disabled={isPending}
-                />
-              </div>
-            )}
-
             <div>
               <Input
                 id="email"
@@ -200,7 +157,7 @@ export function AuthScreen() {
                     mode === "signup" ? "Create a password" : "Password"
                   }
                   className="h-[52px] w-full rounded-full border border-[#E5E5E5] bg-[#F9F9F9] px-5 text-[15px] sm:text-[16px] text-black shadow-none transition-colors placeholder:text-[#A1A1AA] focus-visible:border-black focus-visible:bg-white focus-visible:ring-0"
-                  minLength={12}
+                  minLength={10}
                   required
                   disabled={isPending}
                 />
