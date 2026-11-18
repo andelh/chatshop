@@ -6,6 +6,8 @@ import type {
   SignUpResult,
   StartPasswordRecoveryResult,
 } from "@convex-dev/auth/methods/email-password/react";
+import { ConvexError } from "convex/values";
+import { SIGNUP_NOT_ALLOWED } from "@/convex/lib/signup";
 
 type UserErrorOf<T> = T extends { userError: infer E } ? E : never;
 
@@ -59,6 +61,12 @@ export function authErrorMessage(userError: AuthUserError): string {
     case "INCORRECT_CODE":
       return "This link is invalid. Request a new one.";
     case "OTHER_ERROR":
+      if (
+        userError.cause instanceof ConvexError &&
+        userError.cause.data === SIGNUP_NOT_ALLOWED
+      ) {
+        return "This email isn't approved for an account yet. Ask the store owner to add you.";
+      }
       return "Something went wrong. Please try again.";
     default:
       userError satisfies never;

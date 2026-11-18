@@ -16,6 +16,10 @@ const app = defineApp({
     // Where the Next.js app is served; emailed links point here. Required so
     // a deployment can't silently send localhost links.
     SITE_URL: v.string(),
+    // Comma-separated emails that may create an account. Existing shop
+    // members can always sign in; anyone else is refused. Unset = no new
+    // accounts.
+    ALLOWED_SIGNUP_EMAILS: v.optional(v.string()),
   },
 });
 

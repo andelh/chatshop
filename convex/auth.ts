@@ -31,4 +31,7 @@ export const {
     changeEmail: `${env.SITE_URL}/auth/confirm-email-change`,
     recovery: `${env.SITE_URL}/auth/reset-password`,
   },
-}).attachUserCallbacks({ createUser: internal.users.createUser });
+}).attachUserCallbacks({
+  createUser: internal.users.createUser,
+  onSignIn: internal.users.onSignIn,
+});

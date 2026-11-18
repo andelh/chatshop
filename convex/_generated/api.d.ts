@@ -21,6 +21,7 @@ import type * as lib_metaSignature from "../lib/metaSignature.js";
 import type * as lib_model_provider from "../lib/model_provider.js";
 import type * as lib_pipeline from "../lib/pipeline.js";
 import type * as lib_publicShop from "../lib/publicShop.js";
+import type * as lib_signup from "../lib/signup.js";
 import type * as lib_threadMessages from "../lib/threadMessages.js";
 import type * as messages from "../messages.js";
 import type * as pendingMessages from "../pendingMessages.js";
@@ -52,6 +53,7 @@ declare const fullApi: ApiFromModules<{
   "lib/model_provider": typeof lib_model_provider;
   "lib/pipeline": typeof lib_pipeline;
   "lib/publicShop": typeof lib_publicShop;
+  "lib/signup": typeof lib_signup;
   "lib/threadMessages": typeof lib_threadMessages;
   messages: typeof messages;
   pendingMessages: typeof pendingMessages;
