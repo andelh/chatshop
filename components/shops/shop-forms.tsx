@@ -465,7 +465,7 @@ export function BusinessHoursForm({
                       <input
                         type="time"
                         aria-label={`${DAY_LABELS[day]} opens`}
-                        className={cn(inputClass, "w-[110px]")}
+                        className={cn(inputClass, "w-[136px]")}
                         value={value.open}
                         onChange={(e) =>
                           setDay(day, { ...value, open: e.target.value })
@@ -476,7 +476,7 @@ export function BusinessHoursForm({
                       <input
                         type="time"
                         aria-label={`${DAY_LABELS[day]} closes`}
-                        className={cn(inputClass, "w-[110px]")}
+                        className={cn(inputClass, "w-[136px]")}
                         value={value.close}
                         onChange={(e) =>
                           setDay(day, { ...value, close: e.target.value })
